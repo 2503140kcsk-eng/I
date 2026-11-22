@@ -54,7 +54,7 @@ export function parseGoCommand(line) {
     if (token === "mate") {
       result.mode = "mate";
       const optionalLimit = tokens[i + 1];
-      if (optionalLimit !== undefined && /^\\d+$/.test(optionalLimit)) {
+      if (optionalLimit !== undefined && /^\d+$/.test(optionalLimit)) {
         const value = Number(optionalLimit);
         if (!Number.isSafeInteger(value)) throw new RangeError("USI mate limit is outside the safe integer range");
         result.parameters.mate = value;

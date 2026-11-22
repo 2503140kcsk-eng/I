@@ -105,6 +105,7 @@ test("USI position parser preserves SFEN fields and drops", function () {
 
 test("USI go parser distinguishes mate search from ordinary search", function () {
   assert.equal(parseGoCommand("go mate").mode, "mate");
+  assert.equal(parseGoCommand("go mate 5").parameters.mate, 5);
   const go = parseGoCommand("go btime 10000 wtime 9000 byoyomi 500");
   assert.equal(go.mode, "normal");
   assert.equal(go.parameters.btime, 10000);
