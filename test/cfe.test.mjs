@@ -145,6 +145,46 @@ test("production verifier mode rejects a history ledger with a mismatched root c
   assert.equal(result.code, "HISTORY_COMMITMENT_MISMATCH");
 });
 
+
+test("history ledger rejects unknown fields, malformed USI tokens and invalid limits", async function () {
+  const initialSfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+  const ledger = await createHistoryLedger({
+    rulesetId: "standard-shogi-v1",
+    initialSfen: initialSfen
+  });
+  const valid = await appendHistoryEvent(ledger, {
+    move: "7g7f",
+    mover: "black",
+    gaveCheck: false,
+    resultingSfen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 2"
+  });
+  const extraTopLevel = structuredClone(valid);
+  extraTopLevel.uncommitted = true;
+  assert.equal((await verifyHistoryLedger(extraTopLevel)).ok, false);
+
+  const extraEvent = structuredClone(valid);
+  extraEvent.events[0].comment = "not part of the signed event schema";
+  assert.equal((await verifyHistoryLedger(extraEvent)).ok, false);
+
+  await assert.rejects(appendHistoryEvent(ledger, {
+    move: "not-a-usI-move",
+    mover: "black",
+    gaveCheck: false,
+    resultingSfen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 2"
+  }), /standard USI move token/);
+
+  await assert.rejects(appendHistoryEvent(ledger, {
+    move: "7g7f",
+    mover: "black",
+    gaveCheck: false,
+    resultingSfen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 2",
+    extra: true
+  }), /unknown fields/);
+
+  assert.equal((await verifyHistoryLedger(valid, { maxEvents: Number.NaN })).ok, false);
+  assert.equal((await verifyHistoryLedger(valid, { maxEvents: 100001 })).ok, false);
+});
+
 test("history ledger commits to every move and resulting SFEN", async function () {
   const initialSfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
   let ledger = await createHistoryLedger({
@@ -300,6 +340,29 @@ test("canonical JSON ignores object insertion order and rejects unsafe values", 
   const cyclic = {};
   cyclic.self = cyclic;
   assert.throws(function () { canonicalJson(cyclic); }, /Cycle/);
+});
+
+
+test("CFE-CJSON-1 matches the shared canonical JSON and SHA-256 vector", async function () {
+  const { sha256Hex, hashCanonical } = await import("../src/cfe/canonical.mjs");
+  assert.equal(canonicalJson({ b: 2, a: 1 }), "{\"a\":1,\"b\":2}");
+  assert.equal(
+    await sha256Hex(""),
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  );
+  assert.equal(
+    await hashCanonical({ b: 2, a: 1 }),
+    "43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777"
+  );
+});
+
+test("canonical JSON rejects ambiguous values across native and WASM runtimes", function () {
+  assert.throws(function () { canonicalJson({ value: 9007199254740992 }); }, /Unsafe integer/);
+  assert.throws(function () { canonicalJson("\uD800"); }, /surrogate/);
+  assert.throws(function () { canonicalJson({ get value() { return 1; } }); }, /Accessor/);
+  const array = [1];
+  array.extra = 2;
+  assert.throws(function () { canonicalJson(array); }, /Custom array property/);
 });
 
 test("extractor builds and verifies a complete AND/OR mate DAG", async function () {

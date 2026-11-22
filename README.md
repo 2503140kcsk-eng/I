@@ -113,3 +113,10 @@ move ordering but must not change proof validity.
 This repository is GPL-3.0-only. Before copying or linking code from other
 projects, pin revisions and review their licences and transitive dependencies.
 See [LICENSE](LICENSE).
+
+
+## Shared proof-format contract
+
+The language-neutral certificate, history-ledger and canonical-hashing rules
+are documented in docs/cfe-certificate-v1.md. Cross-runtime canonicalization
+test vectors are in spec/canonical-v1-vectors.json.
