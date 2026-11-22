@@ -238,3 +238,22 @@ has not pushed its move record. The pinned Rust probe under
 the observed history truncation. Until the probe is green and this behavior is
 understood or fixed, the crate is a candidate only, not a trusted verifier
 history loader.
+
+
+## Condition-cube inclusion semantics
+
+A condition cube is a conjunction of feature equalities. For example,
+`phase=middlegame ∧ attacker=b` is stronger (more specific) than
+`phase=middlegame`, because every assignment satisfying the first also
+satisfies the second. `compareConditionCubes` returns:
+
+- `LEFT_STRONGER` or `RIGHT_STRONGER` when one cube implies the other;
+- `EQUIVALENT` when both imply each other;
+- `INCOMPARABLE` when the cubes overlap but neither implies the other;
+- `DISJOINT` when a shared feature has contradictory values.
+
+`compareFootprints` first requires identical ruleset, verifier ABI and
+attacker side. It reports condition inclusion and exact-root equality for
+indexing/eviction heuristics only. Every result has
+`proofTransferAllowed: false`: symbolic proof-preserving generalization is
+not implemented, and a cube relationship never transfers a mate theorem.

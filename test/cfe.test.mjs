@@ -5,6 +5,8 @@ import {
   extractCertificate,
   createFootprint,
   matchFootprint,
+  compareConditionCubes,
+  compareFootprints,
   planTasks,
   verifyCertificate,
   VERIFIER_ABI,
@@ -326,6 +328,74 @@ test("verifier rejects malformed terminal nodes", async function () {
   candidate.nodes.t1.edges = [{ move: "bogus", to: "t1" }];
   const result = await extractCertificate(candidate, fixture.rules, { expectedRootState: fixture.states.get("root") });
   assert.equal(result.ok, false);
+});
+
+
+test("condition cube inclusion distinguishes stronger, equivalent and incomparable cubes", function () {
+  const broad = { phase: "middlegame" };
+  const narrow = { phase: "middlegame", handClass: "rook", turn: "b" };
+  assert.equal(compareConditionCubes(broad, narrow).relation, "RIGHT_STRONGER");
+  assert.equal(compareConditionCubes(narrow, broad).relation, "LEFT_STRONGER");
+  assert.equal(compareConditionCubes(broad, { phase: "middlegame" }).relation, "EQUIVALENT");
+  assert.equal(compareConditionCubes(
+    { phase: "middlegame" },
+    { handClass: "rook" }
+  ).relation, "INCOMPARABLE");
+});
+
+test("condition cube comparison detects contradictory literals as disjoint", function () {
+  const result = compareConditionCubes(
+    { phase: "middlegame", turn: "b" },
+    { phase: "endgame", turn: "b" }
+  );
+  assert.equal(result.relation, "DISJOINT");
+  assert.equal(result.leftImpliesRight, false);
+  assert.equal(result.rightImpliesLeft, false);
+});
+
+test("footprint inclusion is index metadata, never proof transfer", function () {
+  const certificate = {
+    schema: "cfe.shogi.certificate",
+    version: 1,
+    root: "a".repeat(64),
+    rulesetId: "rules-v1",
+    verifierAbi: VERIFIER_ABI,
+    attackerSide: "b",
+    nodes: {
+      ["a".repeat(64)]: {
+        state: { sfen: "sfen", historyDigest: historyDigest("a"), turn: "b" }
+      }
+    }
+  };
+  const broad = createFootprint(certificate, { phase: "middlegame" });
+  const narrow = createFootprint(certificate, { phase: "middlegame", handClass: "rook" });
+  const result = compareFootprints(broad, narrow);
+  assert.equal(result.compatible, true);
+  assert.equal(result.relation, "RIGHT_STRONGER");
+  assert.equal(result.sameRootState, true);
+  assert.equal(result.proofTransferAllowed, false);
+});
+
+test("footprints from incompatible verifier ABIs cannot be compared for reuse", function () {
+  const certificate = {
+    schema: "cfe.shogi.certificate",
+    version: 1,
+    root: "b".repeat(64),
+    rulesetId: "rules-v1",
+    verifierAbi: VERIFIER_ABI,
+    attackerSide: "b",
+    nodes: {
+      ["b".repeat(64)]: {
+        state: { sfen: "sfen", historyDigest: historyDigest("b"), turn: "b" }
+      }
+    }
+  };
+  const a = createFootprint(certificate, { phase: 1 });
+  const b = { ...a, verifierAbi: "cfe-verifier/2" };
+  const result = compareFootprints(a, b);
+  assert.equal(result.compatible, false);
+  assert.equal(result.relation, "INCOMPATIBLE");
+  assert.equal(result.proofTransferAllowed, false);
 });
 
 test("exact footprint matches remain candidates and require verification", async function () {
