@@ -13,7 +13,7 @@
     {
       "name": "integer-looking-object-keys-are-lexicographic",
       "input": { "2": "two", "10": "ten" },
-      "canonical": "{\\"10\\":\\"ten\\",\\"2\\":\\"two\\"}",
+      "canonical": "{\"10\":\"ten\",\"2\":\"two\"}",
       "sha256": "b71e124675fc80e7314688bffdb68e83515851fb51474125db9a0c4c8aca3808"
     },
     {
