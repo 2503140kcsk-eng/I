@@ -1,66 +1,34 @@
-name: Expand and verify source distribution
+name: Validate source distribution
 
 on:
   push:
     branches: [cfe-foundation]
     paths:
+      - "CFE-Shogi-source-v0.1.0.tar.gz"
+      - "SHA256SUMS"
       - ".github/workflows/expand-source.yml"
   workflow_dispatch:
 
 permissions:
-  contents: write
-
-concurrency:
-  group: cfe-source-expand
-  cancel-in-progress: false
+  contents: read
 
 jobs:
-  expand:
+  validate-archive:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out feature branch
+      - name: Check out source
         uses: actions/checkout@v4
         with:
           ref: cfe-foundation
-          fetch-depth: 0
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Validate archive paths and expand source
-        shell: bash
+      - name: Verify archive integrity
         run: |
           set -euo pipefail
-          archive="CFE-Shogi-source-v0.1.0.tar.gz"
-          test -s "$archive"
-          if tar -tzf "$archive" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+          sha256sum --check SHA256SUMS
+          tar -tzf CFE-Shogi-source-v0.1.0.tar.gz > /tmp/cfe-archive-files.txt
+          if grep -Eq '(^/|(^|/)\\.\\.(/|$))' /tmp/cfe-archive-files.txt; then
             echo "Unsafe archive path detected" >&2
             exit 1
           fi
-          tar --no-same-owner --no-same-permissions \
-            --exclude='./README.md' --exclude='README.md' \
-            --exclude='./LICENSE' --exclude='LICENSE' \
-            -xzf "$archive"
-
-      - name: Run syntax checks and unit tests
-        run: |
-          npm run check
-          npm test
-
-      - name: Commit expanded source
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A --             .github/workflows             src tests docs supabase engine             index.html styles.css sw.js manifest.webmanifest             vercel.json package.json .env.example .gitignore THIRD_PARTY_NOTICES.md
-          if git diff --cached --quiet; then
-            echo "No source files changed; nothing to commit."
-            exit 0
-          fi
-          git commit -m "Expand verified CFE Shogi source tree"
-          git push origin HEAD:cfe-foundation
+          test -s /tmp/cfe-archive-files.txt
+          echo "Archive integrity and path checks passed."
