@@ -85,16 +85,18 @@ before using its SFEN-with-moves loader as trusted evidence:
    pushed only after successful return. This appears capable of leaving a
    mutated position with a truncated move-history list.
 
-**Important distinction:** the control flow above is directly visible in the
-source. The resulting premature fourfold-repetition behavior is a source-level
-inference until reproduced against the pinned crate. The Rust audit test in
-this repository compares direct `make_move` replay against `set_sfen` bulk
-replay using a two-king shuttle with only three actual occurrences of the
-initial position. It pins the observed 0.12.2 behavior so an upstream change
-forces re-review. This is an audit finding, not a claim that the whole crate is
-unusable: a carefully designed adapter could replay from the initial SFEN by
-calling `make_move` directly and discard a branch after rule-terminal errors,
-but that path still needs its own exhaustive tests.
+**Reproduction result:** the source-level concern has now been reproduced
+against the pinned `shogi 0.12.2` crate in GitHub Actions run
+[45023139783](https://github.com/2503140kcsk-eng/I/actions/runs/45023139783).
+The direct-replay test records all eight plies. The bulk `set_sfen` test
+returns success but records only seven moves for the same sequence, despite
+the initial position occurring only three times. This confirms the premature
+fourfold-repetition/truncated-history behavior for this pinned version. The
+regression test intentionally records this defect; it is not a passing
+conformance result for CFE. A carefully designed adapter might replay from
+the initial SFEN by calling `make_move` directly and discarding a branch
+after rule-terminal errors, but that path still needs its own exhaustive
+tests.
 
 The public API also does not provide one direct `legal_moves()` or
 `is_checkmate()` call. A verifier adapter would need to enumerate board

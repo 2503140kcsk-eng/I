@@ -434,12 +434,12 @@ test("footprint refuses reuse across rulesets", function () {
   const certificate = {
     schema: "cfe.shogi.certificate",
     version: 1,
-    root: "root-id",
+    root: "c".repeat(64),
     rulesetId: "rules-v1",
     verifierAbi: VERIFIER_ABI,
     attackerSide: "b",
     nodes: {
-      "root-id": { state: { sfen: "sfen", historyDigest: historyDigest("a"), turn: "b" } }
+      ["c".repeat(64)]: { state: { sfen: "sfen", historyDigest: historyDigest("a"), turn: "b" } }
     }
   };
   const footprint = createFootprint(certificate);
@@ -456,12 +456,12 @@ test("an empty condition cube is not a universal footprint hit", function () {
   const certificate = {
     schema: "cfe.shogi.certificate",
     version: 1,
-    root: "root-id",
+    root: "c".repeat(64),
     rulesetId: "rules-v1",
     verifierAbi: VERIFIER_ABI,
     attackerSide: "b",
     nodes: {
-      "root-id": { state: { sfen: "sfen", historyDigest: historyDigest("a"), turn: "b" } }
+      ["c".repeat(64)]: { state: { sfen: "sfen", historyDigest: historyDigest("a"), turn: "b" } }
     }
   };
   const footprint = createFootprint(certificate);
