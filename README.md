@@ -20,9 +20,11 @@ It separates heuristic move selection from independently checkable mate evidence
 - **Governor** — prioritizes verification against CPU/GPU/memory/thermal
   budgets. Scheduling never authorizes proof acceptance.
 - **History ledger** — hash-chains the initial SFEN and each recorded ply, and
-  binds cache identity to ruleset + SFEN + history digest.
+  binds cache identity to ruleset + SFEN + history digest. Every production
+  proof state carries its ledger; the verifier recomputes the chain and calls
+  the rules adapter's `replayHistory(ledger)` for independent legal replay.
 - **USI observer** — parses common position/go commands and labels a
-  YaneuraOu checkmate PV as ENGINE_CLAIM_ONLY, never as a certificate.
+  YaneuraOu checkmate PV as `ENGINE_CLAIM_ONLY`, never as a certificate.
 
 ## Current trust boundary
 
@@ -32,6 +34,10 @@ commitments, not proof that each move was legal. A production verifier must
 replay the committed game history, independently recompute every successor
 position/check flag, and adjudicate repetition, perpetual check, pawn-drop mate
 and the chosen ruleset's other terminal conditions.
+
+Production adapters must implement `replayHistory(ledger)` and return the
+canonical position reached by replay. `allowOpaqueHistory: true` is reserved
+for synthetic test adapters and must never be enabled in production.
 
 The repository does not yet contain a production Shogi rules verifier, an
 actual DFPN proof-DAG exporter, a YaneuraOu process supervisor, a native mobile
@@ -44,12 +50,9 @@ against the exact requested root position and its history.
 
 ## Verification
 
-Latest checked commit: `447d65d41f8b7fff5e5842ae842bc477f1c7df96`.
-
-- GitHub Actions syntax check: passed.
-- Unit tests: **27/27 passed** on Node.js 22.
-- Tests exercise a synthetic rules adapter. They do not establish conformance
-  with actual Japanese Shogi.
+- Latest completed source CI: **29/29 tests passed** on Node.js 22.
+- The tests exercise synthetic rule adapters and fail-closed history checks.
+- They do not establish conformance with actual Japanese Shogi.
 
 Run locally with Node.js 22 or newer:
 
