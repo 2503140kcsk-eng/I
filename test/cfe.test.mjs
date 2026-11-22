@@ -231,7 +231,13 @@ test("USI position parser preserves SFEN fields and drops", function () {
 
 test("USI go parser distinguishes mate search from ordinary search", function () {
   assert.equal(parseGoCommand("go mate").mode, "mate");
-  assert.equal(parseGoCommand("go mate 5").parameters.mate, 5);
+  assert.deepEqual(parseGoCommand("go mate").mateTimeLimit, { kind: "omitted" });
+  assert.deepEqual(parseGoCommand("go mate 60000").mateTimeLimit, {
+    kind: "milliseconds",
+    value: 60000
+  });
+  assert.deepEqual(parseGoCommand("go mate infinite").mateTimeLimit, { kind: "infinite" });
+  assert.throws(function () { parseGoCommand("go mate bogus"); }, /milliseconds or infinite/);
   const go = parseGoCommand("go btime 10000 wtime 9000 byoyomi 500");
   assert.equal(go.mode, "normal");
   assert.equal(go.parameters.btime, 10000);
@@ -250,8 +256,31 @@ test("USI observer passes commands through and tracks position/search state", fu
   observer.acceptEngineLine("checkmate 3c3d 7g7f");
   assert.equal(observer.snapshot().mateClaim.status, "ENGINE_CLAIM_ONLY");
   assert.equal(observer.snapshot().mateClaim.proofVerified, false);
+  assert.equal(observer.snapshot().searching, false);
+  assert.equal(observer.snapshot().activeSearch, null);
   observer.acceptEngineLine("bestmove resign");
   assert.equal(observer.snapshot().searching, false);
+});
+
+
+test("USI observer recognises checkmate notimplemented without accepting proof", function () {
+  const observer = new UsiProxyObserver();
+  observer.acceptGuiLine("go mate infinite");
+  observer.acceptEngineLine("checkmate notimplemented");
+  const state = observer.snapshot();
+  assert.equal(state.mateClaim.status, "ENGINE_NOT_IMPLEMENTED");
+  assert.equal(state.mateClaim.proofVerified, false);
+  assert.equal(state.searching, false);
+});
+
+test("USI observer marks a bare checkmate response malformed and terminal", function () {
+  const observer = new UsiProxyObserver();
+  observer.acceptGuiLine("go mate 1000");
+  observer.acceptEngineLine("checkmate");
+  const state = observer.snapshot();
+  assert.equal(state.mateClaim.status, "MALFORMED_EMPTY_CLAIM");
+  assert.equal(state.proofVerified, undefined);
+  assert.equal(state.searching, false);
 });
 
 test("USI observer treats timeout and nomate as engine reports, not certificates", function () {

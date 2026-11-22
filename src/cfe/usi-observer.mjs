@@ -48,48 +48,82 @@ const GO_NUMERIC = new Set([
 export function parseGoCommand(line) {
   const tokens = tokenize(line);
   if (tokens[0] !== "go") throw new TypeError("Expected a USI go command");
-  const result = { mode: tokens.includes("mate") ? "mate" : "normal", parameters: {}, flags: [], searchmoves: [] };
+
+  const result = {
+    mode: "normal",
+    parameters: {},
+    flags: [],
+    searchmoves: [],
+    mateTimeLimit: null
+  };
+
   for (let i = 1; i < tokens.length; i += 1) {
     const token = tokens[i];
+
     if (token === "mate") {
+      if (result.mode === "mate") throw new TypeError("USI go command repeats mate");
       result.mode = "mate";
       const optionalLimit = tokens[i + 1];
-      if (optionalLimit !== undefined && /^\d+$/.test(optionalLimit)) {
-        const value = Number(optionalLimit);
-        if (!Number.isSafeInteger(value)) throw new RangeError("USI mate limit is outside the safe integer range");
-        result.parameters.mate = value;
+
+      if (optionalLimit === "infinite") {
+        result.mateTimeLimit = { kind: "infinite" };
         i += 1;
+      } else if (optionalLimit !== undefined && /^\\d+$/.test(optionalLimit)) {
+        const value = Number(optionalLimit);
+        if (!Number.isSafeInteger(value)) {
+          throw new RangeError("USI mate time limit is outside the safe integer range");
+        }
+        result.mateTimeLimit = { kind: "milliseconds", value };
+        i += 1;
+      } else if (optionalLimit !== undefined && !GO_NUMERIC.has(optionalLimit) &&
+          !["infinite", "ponder", "searchmoves"].includes(optionalLimit)) {
+        throw new TypeError("USI go mate argument must be milliseconds or infinite");
+      } else {
+        // A bare "go mate" is accepted by YaneuraOu, but explicit
+        // "go mate infinite" is more portable between USI engines.
+        result.mateTimeLimit = { kind: "omitted" };
       }
       continue;
     }
+
     if (GO_NUMERIC.has(token)) {
       const raw = tokens[i + 1];
-      if (raw === undefined || !/^\d+$/.test(raw)) {
+      if (raw === undefined || !/^\\d+$/.test(raw)) {
         throw new TypeError("USI go parameter " + token + " requires a non-negative integer");
       }
       const value = Number(raw);
-      if (!Number.isSafeInteger(value)) throw new RangeError("USI go parameter is outside the safe integer range");
+      if (!Number.isSafeInteger(value)) {
+        throw new RangeError("USI go parameter is outside the safe integer range");
+      }
       result.parameters[token] = value;
       i += 1;
       continue;
     }
+
     if (token === "searchmoves") {
-      const start = i + 1;
-      let end = start;
-      while (end < tokens.length && !GO_NUMERIC.has(tokens[end]) &&
-          !["infinite", "ponder", "searchmoves"].includes(tokens[end])) end += 1;
-      result.searchmoves = parseMoves(tokens.slice(start, end), "searchmoves");
-      if (result.searchmoves.length === 0) throw new TypeError("searchmoves requires at least one move");
-      i = end - 1;
+      const startIndex = i + 1;
+      let endIndex = startIndex;
+      while (endIndex < tokens.length && !GO_NUMERIC.has(tokens[endIndex]) &&
+          !["mate", "infinite", "ponder", "searchmoves"].includes(tokens[endIndex])) {
+        endIndex += 1;
+      }
+      result.searchmoves = parseMoves(tokens.slice(startIndex, endIndex), "searchmoves");
+      if (result.searchmoves.length === 0) {
+        throw new TypeError("searchmoves requires at least one move");
+      }
+      i = endIndex - 1;
       continue;
     }
+
     if (token === "infinite" || token === "ponder") {
       result.flags.push(token);
       continue;
     }
-    // Preserve unknown extension tokens instead of rejecting a vendor option.
+
+    // Preserve unknown extension tokens rather than rejecting a vendor option.
     result.flags.push(token);
   }
+
   return result;
 }
 
@@ -161,6 +195,12 @@ export class UsiProxyObserver {
       this.#state.stopRequested = false;
       this.#state.activeSearch = null;
     } else if (tokens[0] === "checkmate") {
+      // The checkmate response terminates the mate-search command. Every
+      // status below is an engine report; none is a CFE certificate.
+      this.#state.searching = false;
+      this.#state.stopRequested = false;
+      this.#state.activeSearch = null;
+
       if (tokens[1] === "timeout") {
         this.#state.mateClaim = {
           status: "INCOMPLETE",
@@ -170,6 +210,18 @@ export class UsiProxyObserver {
       } else if (tokens[1] === "nomate") {
         this.#state.mateClaim = {
           status: "ENGINE_REPORT_NO_MATE",
+          proofVerified: false,
+          line: line
+        };
+      } else if (tokens[1] === "notimplemented") {
+        this.#state.mateClaim = {
+          status: "ENGINE_NOT_IMPLEMENTED",
+          proofVerified: false,
+          line: line
+        };
+      } else if (tokens.length === 1) {
+        this.#state.mateClaim = {
+          status: "MALFORMED_EMPTY_CLAIM",
           proofVerified: false,
           line: line
         };

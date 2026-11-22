@@ -169,3 +169,28 @@ pinned only in the audit tool. Do not use this crate as a proof trust root.
 - Keep the certificate format and verification semantics common across native
   iPhone, WebAssembly and GPU-hosted search. GPU scores guide search; proof
   verification remains exact and fail-closed.
+
+ 
+## USI mate-search contract (verified against current YaneuraOu source)
+
+The documented interoperable command form is `go mate [milliseconds | infinite]`.
+The numeric argument is a time limit in milliseconds, not a mate depth. Current
+YaneuraOu accepts bare `go mate` as an unlimited/default sentinel, but a CFE
+client should send `go mate infinite` explicitly when it needs portable
+unlimited search. The observer records a bare argument as `kind: omitted`
+rather than silently assigning a cross-engine meaning.
+
+The response parser distinguishes `checkmate timeout`, `checkmate nomate`,
+`checkmate notimplemented`, and a `checkmate <moves>` line. All are engine
+reports, not certificate verdicts. A move sequence is one linear PV, not a
+complete AND/OR tree. The current YaneuraOu mate-PV reconstruction chooses a
+continuation and returns a line; it does not enumerate every legal defender
+evasion. CFE must reconstruct or export the complete proof DAG from search
+state, then independently verify it. A PV may seed that process but cannot
+replace the missing AND branches.
+
+Sources:
+- [Shogi-dokoro USI protocol](https://shogidokoro2.stars.ne.jp/usi.html)
+- [YaneuraOu USI parser](https://github.com/yaneurao/YaneuraOu/blob/master/source/usi.cpp)
+- [YaneuraOu Tanuki mate search and PV extraction](https://github.com/yaneurao/YaneuraOu/blob/master/source/engine/tanuki-mate-engine/tanuki-mate-search.cpp)
+- [cshogi DfPn Python bindings](https://github.com/TadaoYamaoka/cshogi/blob/master/cshogi/_cshogi.pyx)
