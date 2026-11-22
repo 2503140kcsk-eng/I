@@ -40,6 +40,9 @@ async function verifyStateHistory(state, rules, label) {
     if (rules.allowOpaqueHistory === true) return;
     reject("HISTORY_WITNESS_REQUIRED", label + " has no replayable history ledger");
   }
+  if (state.historyLedger.rulesetId !== rules.rulesetId) {
+    reject("HISTORY_RULESET_MISMATCH", label + " history ledger ruleset differs from the verifier ruleset");
+  }
   const checked = await verifyHistoryLedger(state.historyLedger);
   if (!checked.ok) {
     reject("INVALID_HISTORY_WITNESS", label + " history ledger failed: " + checked.reason);
@@ -52,6 +55,10 @@ async function verifyStateHistory(state, rules, label) {
     : state.historyLedger.events[state.historyLedger.events.length - 1].resultingSfen;
   if (finalSfen !== state.sfen) {
     reject("HISTORY_FINAL_STATE_MISMATCH", label + " history does not end at the declared SFEN");
+  }
+  const expectedTurn = checked.sideToMove === "black" ? "b" : "w";
+  if (state.turn !== expectedTurn) {
+    reject("HISTORY_TURN_MISMATCH", label + " history side-to-move differs from the declared turn");
   }
 }
 
@@ -172,7 +179,8 @@ export async function verifyCertificate(certificate, rules, options = {}) {
     let edgeCount = 0;
 
     const decodeState = async function (state, label) {
-      assertStateEnvelope(state, label);
+      assertStateEnvelope(state, label, rules);
+      await verifyStateHistory(state, rules, label);
       const position = await rules.decodeState(state);
       const canonical = await rules.canonicalState(position);
       if (canonicalJson(canonical) !== canonicalJson(state)) {
@@ -275,7 +283,8 @@ export async function verifyCertificate(certificate, rules, options = {}) {
 
     const root = certificate.nodes[certificate.root];
     if (!root || !isRecord(root)) reject("MISSING_ROOT", "Root node is absent or malformed");
-    assertStateEnvelope(root.state, "root state");
+    assertStateEnvelope(root.state, "root state", rules);
+    await verifyStateHistory(root.state, rules, "root state");
     if (root.state.turn !== certificate.attackerSide) {
       reject("ROOT_TURN_INVALID", "The attacker must be the side to move at the tsume root");
     }

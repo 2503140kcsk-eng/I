@@ -101,7 +101,10 @@ function candidateFrom(states) {
 test("production verifier mode rejects an opaque digest without a history witness", async function () {
   const fixture = makeRules();
   const rules = { ...fixture.rules, allowOpaqueHistory: false };
-  const result = await extractCertificate(candidateFrom(fixture.states), rules);
+  const candidate = candidateFrom(fixture.states);
+  const result = await extractCertificate(candidate, rules, {
+    expectedRootState: candidate.nodes.r.state
+  });
   assert.equal(result.ok, false);
   assert.equal(result.code, "HISTORY_WITNESS_REQUIRED");
 });
@@ -115,17 +118,18 @@ test("production verifier mode rejects a history ledger with a mismatched root c
   const fixture = makeRules();
   const state = {
     sfen: initialSfen,
-    turn: "attacker",
+    turn: "b",
     historyDigest: "0".repeat(64),
     historyLedger: ledger
   };
   const candidate = {
     rulesetId: fixture.rules.rulesetId,
+    attackerSide: "b",
     root: "r",
     nodes: { r: { state, kind: "OR", edges: [] } }
   };
   const rules = { ...fixture.rules, allowOpaqueHistory: false };
-  const result = await extractCertificate(candidate, rules);
+  const result = await extractCertificate(candidate, rules, { expectedRootState: state });
   assert.equal(result.ok, false);
   assert.equal(result.code, "HISTORY_COMMITMENT_MISMATCH");
 });
