@@ -1,0 +1,8 @@
+[package]
+name = "cfe-shogi-rs-audit"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+shogi = "=0.12.2"

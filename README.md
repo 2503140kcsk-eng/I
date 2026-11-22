@@ -54,14 +54,23 @@ against the exact requested root position and its history.
 - The tests exercise synthetic rule adapters and fail-closed history checks.
 - They do not establish conformance with actual Japanese Shogi.
 
-Run locally with Node.js 22 or newer:
+Run the reference core locally with Node.js 22 or newer:
 
 ```sh
 npm run check
 npm test
 ```
 
-The project has no npm runtime dependencies and uses Node's built-in test runner.
+A separate Rust audit probe pins `shogi-rs 0.12.2` and checks its SFEN
+history-replay behavior:
+
+```sh
+cargo test --manifest-path tools/shogi-rs-audit/Cargo.toml
+```
+
+The CFE JavaScript core has no npm runtime dependencies and uses Node's
+built-in test runner. The Rust crate is an audit-only development tool, not
+a production CFE dependency.
 
 ## Planned engine and rules adapters
 
@@ -78,8 +87,9 @@ The project has no npm runtime dependencies and uses Node's built-in test runner
   — self-play, training data and GPU policy/value inference. Neural outputs
   remain heuristic and cannot certify mate.
 - **[nozaq/shogi-rs](https://github.com/nozaq/shogi-rs)** — independent Rust
-  rules/verifier candidate. It must pass a pinned standard-Shogi conformance
-  suite before it is trusted.
+  rules candidate. Its pinned 0.12.2 SFEN history-replay behavior is covered by
+  an audit probe; do not use `set_sfen(... moves ...)` as a trusted verifier
+  history loader until the upstream issue is resolved or bypassed safely.
 - **[mShogi](https://github.com/jweathers777/mShogi)** — Rust DF-PN comparator
   and native Shogi proof-helper reference. It is useful for testing algorithms
   and edge cases, but its current mate result is not a CFE proof DAG.

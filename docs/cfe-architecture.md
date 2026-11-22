@@ -224,3 +224,17 @@ and independently confirm legality, gave-check annotations, repetition and
 perpetual-check adjudication. Synthetic tests can opt into opaque history only
 with the explicit `allowOpaqueHistory: true` test adapter flag; production
 adapters must leave that flag absent.
+
+
+## nozaq/shogi-rs SFEN replay audit
+
+The source inspection found a concrete history-replay concern. During
+`set_sfen(... moves ...)`, each successful `make_move` is followed by another
+`log_position`, although the normal/drop move routines already logged before
+running repetition detection. If repetition returns an error, the bulk loader
+breaks and returns success; the move routine has changed the board/ply but
+has not pushed its move record. The pinned Rust probe under
+`tools/shogi-rs-audit` compares direct replay with bulk replay to reproduce
+the observed history truncation. Until the probe is green and this behavior is
+understood or fixed, the crate is a candidate only, not a trusted verifier
+history loader.
