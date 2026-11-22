@@ -60,6 +60,18 @@ async function verifyStateHistory(state, rules, label) {
   if (state.turn !== expectedTurn) {
     reject("HISTORY_TURN_MISMATCH", label + " history side-to-move differs from the declared turn");
   }
+  if (rules.allowOpaqueHistory !== true) {
+    let replayed;
+    try {
+      replayed = await rules.replayHistory(state.historyLedger);
+    } catch (error) {
+      reject("HISTORY_REPLAY_FAILED", label + " history replay failed: " + (error.message || String(error)));
+    }
+    const replayedState = await rules.canonicalState(replayed);
+    if (canonicalJson(replayedState) !== canonicalJson(state)) {
+      reject("HISTORY_REPLAY_MISMATCH", label + " replayed history does not reproduce the complete canonical state");
+    }
+  }
 }
 
 function assertMoveList(value, label) {
@@ -90,6 +102,9 @@ function assertRulesAdapter(rules) {
     if (typeof rules[method] !== "function") {
       reject("INVALID_RULES_ADAPTER", "Missing rules adapter method: " + method);
     }
+  }
+  if (rules.allowOpaqueHistory !== true && typeof rules.replayHistory !== "function") {
+    reject("INVALID_RULES_ADAPTER", "Production rules adapters must implement replayHistory");
   }
 }
 
