@@ -26,12 +26,12 @@ function makeRules() {
     ["attacker-2|m2", "mate-2"]
   ]);
   const states = new Map([
-    ["root", { sfen: "root position", historyDigest: historyDigest(1), turn: "attacker" }],
-    ["defender", { sfen: "defender position", historyDigest: historyDigest(2), turn: "defender" }],
-    ["attacker-1", { sfen: "attacker branch 1", historyDigest: historyDigest(3), turn: "attacker" }],
-    ["attacker-2", { sfen: "attacker branch 2", historyDigest: historyDigest(4), turn: "attacker" }],
-    ["mate-1", { sfen: "mate position 1", historyDigest: historyDigest(5), turn: "defender" }],
-    ["mate-2", { sfen: "mate position 2", historyDigest: historyDigest(6), turn: "defender" }]
+    ["root", { sfen: "root position", historyDigest: historyDigest(1), turn: "b" }],
+    ["defender", { sfen: "defender position", historyDigest: historyDigest(2), turn: "w" }],
+    ["attacker-1", { sfen: "attacker branch 1", historyDigest: historyDigest(3), turn: "b" }],
+    ["attacker-2", { sfen: "attacker branch 2", historyDigest: historyDigest(4), turn: "b" }],
+    ["mate-1", { sfen: "mate position 1", historyDigest: historyDigest(5), turn: "w" }],
+    ["mate-2", { sfen: "mate position 2", historyDigest: historyDigest(6), turn: "w" }]
   ]);
 
   const rules = {
@@ -66,8 +66,8 @@ function makeRules() {
       if (!next) throw new Error("Illegal test move");
       return states.get(next);
     },
-    isCheckmate: function (state) {
-      return state.sfen.startsWith("mate position");
+    terminalStatus: function (state) {
+      return state.sfen.startsWith("mate position") ? "checkmate" : "ongoing";
     }
   };
   return { rules: rules, states: states };
@@ -76,6 +76,7 @@ function makeRules() {
 function candidateFrom(states) {
   return {
     rulesetId: "test-tsume-v1",
+    attackerSide: "b",
     root: "r",
     provenance: { generator: "test-fixture", search: "dfpn" },
     nodes: {
@@ -225,7 +226,7 @@ test("canonical JSON ignores object insertion order and rejects unsafe values", 
 
 test("extractor builds and verifies a complete AND/OR mate DAG", async function () {
   const fixture = makeRules();
-  const result = await extractCertificate(candidateFrom(fixture.states), fixture.rules);
+  const result = await extractCertificate(candidateFrom(fixture.states), fixture.rules, { expectedRootState: fixture.states.get("root") });
   assert.equal(result.ok, true, result.reason);
   assert.equal(result.verification.code, "VERIFIED_MATE");
   assert.equal(result.verification.nodeCount, 6);
@@ -237,7 +238,7 @@ test("verifier rejects an omitted defender evasion", async function () {
   candidate.nodes.d.edges.pop();
   delete candidate.nodes.a2;
   delete candidate.nodes.t2;
-  const result = await extractCertificate(candidate, fixture.rules);
+  const result = await extractCertificate(candidate, fixture.rules, { expectedRootState: fixture.states.get("root") });
   assert.equal(result.ok, false);
   assert.equal(result.code, "INCOMPLETE_DEFENDER_COVERAGE");
 });
@@ -246,13 +247,13 @@ test("verifier rejects a wrong child state", async function () {
   const fixture = makeRules();
   const candidate = candidateFrom(fixture.states);
   candidate.nodes.r.edges[0].to = "a1";
-  const result = await extractCertificate(candidate, fixture.rules);
+  const result = await extractCertificate(candidate, fixture.rules, { expectedRootState: fixture.states.get("root") });
   assert.equal(result.ok, false);
 });
 
 test("verifier checks complete history context at the root", async function () {
   const fixture = makeRules();
-  const extracted = await extractCertificate(candidateFrom(fixture.states), fixture.rules);
+  const extracted = await extractCertificate(candidateFrom(fixture.states), fixture.rules, { expectedRootState: fixture.states.get("root") });
   assert.equal(extracted.ok, true);
   const otherHistory = { ...fixture.states.get("root"), historyDigest: historyDigest("f") };
   const result = await verifyCertificate(extracted.certificate, fixture.rules, {
@@ -266,7 +267,7 @@ test("extractor rejects cycles in the proof DAG", async function () {
   const fixture = makeRules();
   const candidate = candidateFrom(fixture.states);
   candidate.nodes.a1.edges[0] = { move: "m1", to: "r" };
-  const result = await extractCertificate(candidate, fixture.rules);
+  const result = await extractCertificate(candidate, fixture.rules, { expectedRootState: fixture.states.get("root") });
   assert.equal(result.ok, false);
   assert.equal(result.code, "CYCLE_DETECTED");
 });
@@ -276,13 +277,13 @@ test("verifier rejects malformed terminal nodes", async function () {
   const candidate = candidateFrom(fixture.states);
   candidate.nodes.t1.kind = "OR";
   candidate.nodes.t1.edges = [{ move: "bogus", to: "t1" }];
-  const result = await extractCertificate(candidate, fixture.rules);
+  const result = await extractCertificate(candidate, fixture.rules, { expectedRootState: fixture.states.get("root") });
   assert.equal(result.ok, false);
 });
 
 test("exact footprint matches remain candidates and require verification", async function () {
   const fixture = makeRules();
-  const result = await extractCertificate(candidateFrom(fixture.states), fixture.rules);
+  const result = await extractCertificate(candidateFrom(fixture.states), fixture.rules, { expectedRootState: fixture.states.get("root") });
   assert.equal(result.ok, true);
   const footprint = createFootprint(result.certificate, { materialClass: "fixture-A", phase: 1 });
   const exact = matchFootprint(footprint, {
@@ -298,12 +299,12 @@ test("exact footprint matches remain candidates and require verification", async
 
 test("condition-cube hits on a different state are retrieval hints only", async function () {
   const fixture = makeRules();
-  const result = await extractCertificate(candidateFrom(fixture.states), fixture.rules);
+  const result = await extractCertificate(candidateFrom(fixture.states), fixture.rules, { expectedRootState: fixture.states.get("root") });
   const footprint = createFootprint(result.certificate, { materialClass: "fixture-A" });
   const abstract = matchFootprint(footprint, {
     rulesetId: fixture.rules.rulesetId,
     verifierAbi: fixture.rules.verifierAbi,
-    state: { sfen: "other position", historyDigest: historyDigest("e"), turn: "attacker" },
+    state: { sfen: "other position", historyDigest: historyDigest("e"), turn: "b" },
     features: { materialClass: "fixture-A" }
   });
   assert.equal(abstract.decision, "ABSTRACT_CANDIDATE");
@@ -316,8 +317,9 @@ test("footprint refuses reuse across rulesets", function () {
     root: "root-id",
     rulesetId: "rules-v1",
     verifierAbi: VERIFIER_ABI,
+    attackerSide: "b",
     nodes: {
-      "root-id": { state: { sfen: "sfen", historyDigest: historyDigest("a"), turn: "attacker" } }
+      "root-id": { state: { sfen: "sfen", historyDigest: historyDigest("a"), turn: "b" } }
     }
   };
   const footprint = createFootprint(certificate);
@@ -336,15 +338,17 @@ test("an empty condition cube is not a universal footprint hit", function () {
     root: "root-id",
     rulesetId: "rules-v1",
     verifierAbi: VERIFIER_ABI,
+    attackerSide: "b",
     nodes: {
-      "root-id": { state: { sfen: "sfen", historyDigest: historyDigest("a"), turn: "attacker" } }
+      "root-id": { state: { sfen: "sfen", historyDigest: historyDigest("a"), turn: "b" } }
     }
   };
   const footprint = createFootprint(certificate);
   const result = matchFootprint(footprint, {
     rulesetId: "rules-v1",
     verifierAbi: VERIFIER_ABI,
-    state: { sfen: "different", historyDigest: "other", turn: "attacker" },
+    attackerSide: "b",
+    state: { sfen: "different", historyDigest: "other", turn: "b" },
     features: {}
   });
   assert.equal(result.decision, "MISS");
@@ -396,7 +400,56 @@ test("extractor rejects unreachable candidate nodes", async function () {
   const fixture = makeRules();
   const candidate = candidateFrom(fixture.states);
   candidate.nodes.unused = { state: fixture.states.get("root"), kind: "OR", edges: [] };
-  const result = await extractCertificate(candidate, fixture.rules);
+  const result = await extractCertificate(candidate, fixture.rules, { expectedRootState: fixture.states.get("root") });
   assert.equal(result.ok, false);
   assert.equal(result.code, "UNREACHABLE_INPUT_NODES");
+});
+
+test("verifier requires an explicit target root before accepting a proof", async function () {
+  const fixture = makeRules();
+  const candidate = candidateFrom(fixture.states);
+  const extracted = await extractCertificate(candidate, fixture.rules, {
+    expectedRootState: fixture.states.get("root")
+  });
+  assert.equal(extracted.ok, true);
+  const unbound = await verifyCertificate(extracted.certificate, fixture.rules);
+  assert.equal(unbound.ok, false);
+  assert.equal(unbound.code, "ROOT_BINDING_REQUIRED");
+});
+
+test("verifier rejects a root bound to the wrong attacker side", async function () {
+  const fixture = makeRules();
+  const candidate = candidateFrom(fixture.states);
+  candidate.attackerSide = "w";
+  const result = await extractCertificate(candidate, fixture.rules, {
+    expectedRootState: fixture.states.get("root")
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "ROOT_TURN_INVALID");
+});
+
+test("verifier rejects a rule-decided repetition or draw as a mate leaf", async function () {
+  const fixture = makeRules();
+  const candidate = candidateFrom(fixture.states);
+  const base = fixture.rules.terminalStatus;
+  fixture.rules.terminalStatus = function (state) {
+    if (state.sfen === "mate position 1") return "non-mate-terminal";
+    return base(state);
+  };
+  const result = await extractCertificate(candidate, fixture.rules, {
+    expectedRootState: fixture.states.get("root")
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "INVALID_TERMINAL");
+});
+
+test("verifier rejects unknown terminal statuses from an adapter", async function () {
+  const fixture = makeRules();
+  const candidate = candidateFrom(fixture.states);
+  fixture.rules.terminalStatus = function () { return "maybe-mate"; };
+  const result = await extractCertificate(candidate, fixture.rules, {
+    expectedRootState: fixture.states.get("root")
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "INVALID_RULES_ADAPTER");
 });
