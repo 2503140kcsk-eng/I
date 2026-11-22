@@ -5,7 +5,7 @@ export const HISTORY_LEDGER_VERSION = 1;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const LEDGER_FIELDS = "digest,events,initialSfen,rulesetId,schema,version";
 const EVENT_FIELDS = "gaveCheck,move,mover,ply,resultingSfen";
-const USI_MOVE_RE = /^(?:[1-9][a-i][1-9][a-i]\\+?|[PLNSGBR]\\*[1-9][a-i])$/;
+const USI_MOVE_RE = /^(?:[1-9][a-i][1-9][a-i]\+?|[PLNSGBR]\*[1-9][a-i])$/;
 const MAX_HISTORY_EVENTS = 100000;
 
 function fail(code, message) {

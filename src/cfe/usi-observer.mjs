@@ -68,7 +68,7 @@ export function parseGoCommand(line) {
       if (optionalLimit === "infinite") {
         result.mateTimeLimit = { kind: "infinite" };
         i += 1;
-      } else if (optionalLimit !== undefined && /^\\d+$/.test(optionalLimit)) {
+      } else if (optionalLimit !== undefined && /^\d+$/.test(optionalLimit)) {
         const value = Number(optionalLimit);
         if (!Number.isSafeInteger(value)) {
           throw new RangeError("USI mate time limit is outside the safe integer range");
@@ -88,7 +88,7 @@ export function parseGoCommand(line) {
 
     if (GO_NUMERIC.has(token)) {
       const raw = tokens[i + 1];
-      if (raw === undefined || !/^\\d+$/.test(raw)) {
+      if (raw === undefined || !/^\d+$/.test(raw)) {
         throw new TypeError("USI go parameter " + token + " requires a non-negative integer");
       }
       const value = Number(raw);
