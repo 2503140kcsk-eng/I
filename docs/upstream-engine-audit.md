@@ -194,3 +194,59 @@ Sources:
 - [YaneuraOu USI parser](https://github.com/yaneurao/YaneuraOu/blob/master/source/usi.cpp)
 - [YaneuraOu Tanuki mate search and PV extraction](https://github.com/yaneurao/YaneuraOu/blob/master/source/engine/tanuki-mate-engine/tanuki-mate-search.cpp)
 - [cshogi DfPn Python bindings](https://github.com/TadaoYamaoka/cshogi/blob/master/cshogi/_cshogi.pyx)
+
+
+## cshogi DFPN graph-export contract
+
+The current upstream cshogi Python wrapper exposes `DfPn.search`,
+`search_andnode`, `get_move`, `get_pv` and `searched_node`. The returned
+PV is a linear move list; the public wrapper does not expose TT children or a
+proof DAG. The importer at `src/cfe/adapters/cshogi-dfpn.mjs` therefore
+defines the contract for a future instrumented cshogi build; it does not claim
+that stock cshogi currently emits this format.
+
+The export must include, for every proof node:
+
+- exact CFE state envelope and history witness;
+- OR / AND / TERMINAL_MATE role;
+- DFPN `pn`, `dn`, game ply and per-entry search counter;
+- the cshogi hand-bound / ProofPieces vector;
+- every exported move edge and its child label.
+
+Every imported node must report `pn = 0` and `dn > 0`, but this is only a
+solver-side consistency filter. The independent CFE verifier regenerates
+legal checking moves, **all** legal defender evasions, successor states and
+terminal mate. A missing defender branch is rejected even if the DFPN root
+reported `pn = 0`.
+
+The importer returns two artifacts: (1) a generic candidate DAG for the CFE
+Extractor and (2) a diagnostics sidecar containing PN/DN, game ply, searched
+counter and ProofPieces. The sidecar is not embedded into the certificate's
+proof semantics. This separation prevents engine-specific search metadata
+from becoming a hidden axiom in the verifier.
+
+### ProofPieces / hand-dominance comparator
+
+The source-level cshogi TT stores a hand vector beside `pn`, `dn`, depth and
+search counter. Its lookup contains two distinct directions:
+
+- solved proof entry: requested hand must be equal or superior to the stored
+  proof-piece bound;
+- solved disproof entry: stored disproof-piece bound must be equal or superior
+  to the requested hand.
+
+`compareCshogiProofPieces` reproduces these componentwise comparisons and
+labels successful results as `DOMINATES`. Its output is always a retrieval
+candidate with `proofTransferAllowed: false`; it is not used to accept a mate
+certificate. In particular, board identity, history interaction, rule profile
+and full move legality remain separate conditions that this local hand
+comparison does not establish.
+
+### Revision audited
+
+cshogi source revision:
+`26889135717af0a08def9663bb73f1abe5263c66`.
+
+- [DFPN header](https://github.com/TadaoYamaoka/cshogi/blob/26889135717af0a08def9663bb73f1abe5263c66/src/dfpn.h)
+- [DFPN implementation](https://github.com/TadaoYamaoka/cshogi/blob/26889135717af0a08def9663bb73f1abe5263c66/src/dfpn.cpp)
+- [Cython API](https://github.com/TadaoYamaoka/cshogi/blob/26889135717af0a08def9663bb73f1abe5263c66/cshogi/_cshogi.pyx)

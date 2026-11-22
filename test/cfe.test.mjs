@@ -14,7 +14,11 @@ import {
   createHistoryLedger,
   appendHistoryEvent,
   verifyHistoryLedger,
-  historyPositionKey
+  historyPositionKey,
+  importCshogiDfpnExport,
+  compareCshogiProofPieces,
+  CSHOGI_DFPN_EXPORT_SCHEMA,
+  CSHOGI_DFPN_EXPORT_VERSION
 } from "../src/cfe/index.mjs";
 import { parsePositionCommand, parseGoCommand, UsiProxyObserver } from "../src/cfe/usi-observer.mjs";
 
@@ -547,6 +551,117 @@ test("proof summary rejects cycles and unreachable nodes", function () {
     }
   };
   assert.throws(function () { summarizeProofDag(disconnected); }, /unreachable/);
+});
+
+
+function makeCshogiDfpnExport(states) {
+  const sourceNode = function (state, kind, edges, gamePly) {
+    return {
+      state: state,
+      kind: kind,
+      pn: 0,
+      dn: 100000000,
+      gamePly: gamePly,
+      numSearched: 1,
+      proofPieces: { P: 0, L: 0, N: 0, S: 0, G: 0, B: 0, R: 0 },
+      edges: edges
+    };
+  };
+  return {
+    schema: CSHOGI_DFPN_EXPORT_SCHEMA,
+    version: CSHOGI_DFPN_EXPORT_VERSION,
+    engine: {
+      name: "cshogi",
+      commit: "26889135717af0a08def9663bb73f1abe5263c66"
+    },
+    rulesetId: "test-tsume-v1",
+    attackerSide: "b",
+    root: "r",
+    search: {
+      maxDepth: 1600,
+      maxSearchNodes: 4294967295,
+      searchedNodes: 7
+    },
+    nodes: {
+      r: sourceNode(states.get("root"), "OR", [{ move: "A", to: "d" }], 0),
+      d: sourceNode(states.get("defender"), "AND", [
+        { move: "e1", to: "a1" },
+        { move: "e2", to: "a2" }
+      ], 1),
+      a1: sourceNode(states.get("attacker-1"), "OR", [{ move: "m1", to: "t1" }], 2),
+      a2: sourceNode(states.get("attacker-2"), "OR", [{ move: "m2", to: "t2" }], 2),
+      t1: sourceNode(states.get("mate-1"), "TERMINAL_MATE", [], 3),
+      t2: sourceNode(states.get("mate-2"), "TERMINAL_MATE", [], 3)
+    }
+  };
+}
+
+test("cshogi DFPN export adapter preserves complete graph and isolates solver diagnostics", function () {
+  const fixture = makeRules();
+  const imported = importCshogiDfpnExport(makeCshogiDfpnExport(fixture.states));
+  assert.equal(imported.ok, true, imported.reason);
+  assert.equal(Object.keys(imported.candidate.nodes).length, 6);
+  assert.equal(imported.candidate.nodes.d.edges.length, 2);
+  assert.equal(imported.diagnostics.nodes.r.pn, 0);
+  assert.equal(imported.diagnostics.nodes.r.proofPieces.P, 0);
+  assert.equal(imported.candidate.provenance.proofPiecesSemantics, "diagnostic-only");
+  assert.equal(imported.candidate.provenance.engine.commit, "26889135717af0a08def9663bb73f1abe5263c66");
+});
+
+test("cshogi DFPN import rejects a non-zero proof number and an incomplete node record", function () {
+  const fixture = makeRules();
+  const nonzero = makeCshogiDfpnExport(fixture.states);
+  nonzero.nodes.r.pn = 1;
+  const rejected = importCshogiDfpnExport(nonzero);
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.code, "UNPROVEN_CSHOGI_NODE");
+
+  const malformed = makeCshogiDfpnExport(fixture.states);
+  delete malformed.nodes.d.edges[1];
+  malformed.nodes.d.edges.pop();
+  const imported = importCshogiDfpnExport(malformed);
+  assert.equal(imported.ok, true);
+  // Import only checks shape; the independent verifier must reject missing
+  // legal defender evasions using its own move generator.
+});
+
+test("cshogi proof-piece dominance compares proof and disproof bounds in opposite directions", function () {
+  const stored = { P: 1, L: 0, N: 0, S: 0, G: 0, B: 0, R: 1 };
+  const strongerAttacker = { P: 2, L: 0, N: 0, S: 0, G: 0, B: 0, R: 1 };
+  const lessDefenderResource = { P: 0, L: 0, N: 0, S: 0, G: 0, B: 0, R: 1 };
+
+  const proof = compareCshogiProofPieces({
+    boundKind: "proof",
+    stored: stored,
+    requested: strongerAttacker
+  });
+  assert.equal(proof.relation, "DOMINATES");
+  assert.equal(proof.reuseCandidate, true);
+  assert.equal(proof.proofTransferAllowed, false);
+
+  const disproof = compareCshogiProofPieces({
+    boundKind: "disproof",
+    stored: stored,
+    requested: lessDefenderResource
+  });
+  assert.equal(disproof.relation, "DOMINATES");
+  assert.equal(disproof.reuseCandidate, true);
+  assert.equal(disproof.requiresIndependentVerification, true);
+});
+
+test("cshogi proof-piece dominance rejects incomparable bounds and impossible hand counts", function () {
+  const a = { P: 1, L: 0, N: 0, S: 0, G: 0, B: 0, R: 0 };
+  const b = { P: 0, L: 0, N: 1, S: 0, G: 0, B: 0, R: 0 };
+  assert.equal(compareCshogiProofPieces({
+    boundKind: "proof", stored: a, requested: b
+  }).relation, "INCOMPARABLE");
+  assert.throws(function () {
+    compareCshogiProofPieces({
+      boundKind: "proof",
+      stored: { ...a, P: 19 },
+      requested: a
+    });
+  }, /outside the Shogi piece-count range/);
 });
 
 test("condition cube inclusion distinguishes stronger, equivalent and incomparable cubes", function () {
