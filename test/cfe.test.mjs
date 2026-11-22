@@ -100,7 +100,11 @@ function candidateFrom(states) {
 
 test("production verifier mode rejects an opaque digest without a history witness", async function () {
   const fixture = makeRules();
-  const rules = { ...fixture.rules, allowOpaqueHistory: false };
+  const rules = {
+    ...fixture.rules,
+    allowOpaqueHistory: false,
+    replayHistory: async function () { throw new Error("not reached without a history witness"); }
+  };
   const candidate = candidateFrom(fixture.states);
   const result = await extractCertificate(candidate, rules, {
     expectedRootState: candidate.nodes.r.state
@@ -128,7 +132,12 @@ test("production verifier mode rejects a history ledger with a mismatched root c
     root: "r",
     nodes: { r: { state, kind: "OR", edges: [] } }
   };
-  const rules = { ...fixture.rules, allowOpaqueHistory: false };
+  const rules = {
+    ...fixture.rules,
+    allowOpaqueHistory: false,
+    decodeState: async function (envelope) { return { ...envelope }; },
+    replayHistory: async function () { throw new Error("not reached before the digest mismatch"); }
+  };
   const result = await extractCertificate(candidate, rules, { expectedRootState: state });
   assert.equal(result.ok, false);
   assert.equal(result.code, "HISTORY_COMMITMENT_MISMATCH");
