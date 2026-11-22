@@ -3,6 +3,10 @@ import { canonicalJson, hashCanonical } from "./canonical.mjs";
 export const HISTORY_LEDGER_SCHEMA = "cfe.shogi.history-ledger";
 export const HISTORY_LEDGER_VERSION = 1;
 const SHA256_RE = /^[0-9a-f]{64}$/;
+const LEDGER_FIELDS = "digest,events,initialSfen,rulesetId,schema,version";
+const EVENT_FIELDS = "gaveCheck,move,mover,ply,resultingSfen";
+const USI_MOVE_RE = /^(?:[1-9][a-i][1-9][a-i]\\+?|[PLNSGBR]\\*[1-9][a-i])$/;
+const MAX_HISTORY_EVENTS = 100000;
 
 function fail(code, message) {
   const error = new Error(message);
@@ -76,11 +80,13 @@ export async function createHistoryLedger({ rulesetId, initialSfen }) {
 }
 
 function validateEvent(event, expectedPly, expectedMover) {
-  if (!isRecord(event)) fail("INVALID_HISTORY_EVENT", "History event must be an object");
+  if (!isRecord(event) || Object.keys(event).sort().join(",") !== EVENT_FIELDS) {
+    fail("INVALID_HISTORY_EVENT", "History event has missing or unknown fields");
+  }
   if (event.ply !== expectedPly) fail("INVALID_HISTORY_PLY", "History event ply is not consecutive");
   if (event.mover !== expectedMover) fail("INVALID_HISTORY_MOVER", "History event mover does not match side to move");
-  if (typeof event.move !== "string" || event.move.length === 0 || event.move.length > 16) {
-    fail("INVALID_HISTORY_MOVE", "History event must contain one USI move token");
+  if (typeof event.move !== "string" || !USI_MOVE_RE.test(event.move)) {
+    fail("INVALID_HISTORY_MOVE", "History event must contain one standard USI move token");
   }
   if (typeof event.gaveCheck !== "boolean") fail("INVALID_HISTORY_CHECK_FLAG", "gaveCheck must be boolean");
   const resultingTurn = parseSfenTurn(event.resultingSfen, "resultingSfen");
@@ -97,6 +103,9 @@ function validateEvent(event, expectedPly, expectedMover) {
 }
 
 export async function appendHistoryEvent(ledger, input) {
+  if (!isRecord(input) || Object.keys(input).sort().join(",") !== "gaveCheck,move,mover,resultingSfen") {
+    fail("INVALID_HISTORY_EVENT", "New history event has missing or unknown fields");
+  }
   const before = await verifyHistoryLedger(ledger);
   if (!before.ok) fail("INVALID_HISTORY_LEDGER", before.reason);
   const event = validateEvent({
@@ -116,7 +125,11 @@ export async function appendHistoryEvent(ledger, input) {
 
 export async function verifyHistoryLedger(ledger, options = {}) {
   try {
+    if (!isRecord(options) || Object.keys(options).some((key) => key !== "maxEvents")) {
+      fail("INVALID_OPTIONS", "History verification options may contain only maxEvents");
+    }
     if (!isRecord(ledger) ||
+        Object.keys(ledger).sort().join(",") !== LEDGER_FIELDS ||
         ledger.schema !== HISTORY_LEDGER_SCHEMA ||
         ledger.version !== HISTORY_LEDGER_VERSION) {
       fail("UNSUPPORTED_HISTORY_LEDGER", "Unsupported history ledger schema or version");
@@ -125,6 +138,9 @@ export async function verifyHistoryLedger(ledger, options = {}) {
     let sideToMove = parseSfenTurn(ledger.initialSfen, "initialSfen");
     if (!Array.isArray(ledger.events)) fail("INVALID_HISTORY_EVENTS", "events must be an array");
     const maxEvents = options.maxEvents === undefined ? 10000 : options.maxEvents;
+    if (!Number.isSafeInteger(maxEvents) || maxEvents < 0 || maxEvents > MAX_HISTORY_EVENTS) {
+      fail("INVALID_LIMIT", "maxEvents must be an integer between 0 and " + MAX_HISTORY_EVENTS);
+    }
     if (ledger.events.length > maxEvents) fail("HISTORY_LIMIT", "History exceeds the event limit");
 
     let digest = await hashCanonical(genesisPayload(ledger.rulesetId, ledger.initialSfen));
