@@ -31,14 +31,16 @@ out-of-band expectedRootState; a certificate verified without an exact root
 binding is not eligible for pruning. Nodes are content-addressed with SHA-256
 over canonical JSON.
 
+The certificate-level attackerSide ("b" or "w") fixes the attacker's absolute
+color. The root state's turn must equal attackerSide. Every call to the
+verifier must also supply expectedRootState out-of-band; that value is not
+stored inside the proof graph and binds the certificate to the exact requested
+search position.
+
 Each proof node contains:
 
 - state: canonical SFEN, absolute side-to-move ("b" or "w"), and a SHA-256
   digest committing to the history context needed for repetition adjudication;
-- certificate-level attackerSide ("b" or "w"), which fixes the attacker role
-  for every node; a root-state turn must equal attackerSide;
-- expectedRootState, supplied out-of-band by the caller and required by the
-  verifier, binding the certificate to the exact requested search position;
 - kind: OR, AND or TERMINAL_MATE;
 - edges: sorted USI move plus child-node digest.
 
@@ -85,8 +87,10 @@ complete AND/OR quantification.
 
 - YaneuraOu: primary ordinary search, NNUE, USI and mate-search candidate
   generation. Keep it behind a USI proxy.
-- cshogi: Python-side DFPN experiments, move generation oracle, proof-DAG export
-  and differential test harness.
+- cshogi: Python-side DFPN experiments, move-generation oracle and differential
+  test harness. Its current Cython DfPn binding exposes search/search_andsearch,
+  first move, PV and searched-node count; it does not export a complete proof
+  DAG. A CFE-labelled DAG exporter must be developed separately.
 - dlshogi: self-play, training data, policy/value inference and GPU experiments.
   Neural scores remain heuristic.
 - nozaq/shogi-rs: independent Rust rules and verifier implementation, subject
@@ -95,13 +99,17 @@ complete AND/OR quantification.
 - mShogi: a real Rust df-pn mate comparator. Its shared mate core searches
   continuous checks, stores PN/DN and proof length, and treats rule-decided
   positions as non-mates; its separate Shogi proof example uses native legality
-  including pawn-drop mate. It is useful for experiments and conformance
-  fixtures, but returns lines/results rather than the CFE proof DAG required
-  here. Pin the exact revision and BSD-3-Clause notices before importing code.
+  including pawn-drop mate, with a deliberately bounded proof horizon. It is
+  useful for experiments and conformance fixtures, but does not currently
+  provide the CFE proof DAG required here. The reviewed repository head is
+  7717e63178c0c557662c73540bc3c70a8a05ae90; preserve its BSD-3-Clause notices
+  if code is imported.
 - Fairy-Stockfish: optional variant engine and differential opponent, not the
   authoritative standard-Shogi verifier.
-- lishogi and shogiground: UI and online-play references. Shogiground is a board
-  UI and intentionally does not own game rules.
+- lishogi and shogiground: online-play and board-UI references. Shogiground is
+  a board UI and intentionally does not own game rules. Treat both as reference
+  projects rather than CFE proof authorities; review AGPL/GPL obligations before
+  copying or linking code.
 
 The first integration target is a standard-Shogi tsume proof adapter using one
 independent native rules implementation. A second implementation (cshogi) is
@@ -173,3 +181,34 @@ The current source files show a useful division of experimental responsibilities
 CFE therefore keeps PN/DN, PV and neural output as provenance and search
 guidance. The certificate verifier reconstructs AND/OR obligations from legal
 moves, rather than trusting those summaries.
+
+
+## Primary source review (repository heads inspected 2026-11-22)
+
+- [YaneuraOu Tanuki mate search](https://github.com/yaneurao/YaneuraOu/blob/master/source/engine/tanuki-mate-engine/tanuki-mate-search.cpp):
+  the source identifies df-pn with TCA and explicitly lists dominance,
+  ProofPieces and SNDA as TODOs. Its USI checkmate output is a mate line per
+  root move, not a complete reusable proof DAG.
+- [cshogi DFPN header](https://github.com/TadaoYamaoka/cshogi/blob/master/src/dfpn.h),
+  [DFPN implementation](https://github.com/TadaoYamaoka/cshogi/blob/master/src/dfpn.cpp)
+  and [Cython binding](https://github.com/TadaoYamaoka/cshogi/blob/master/cshogi/_cshogi.pyx):
+  TT entries include hand, PN, DN, depth and searched-node count. Lookup compares
+  hand superiority for solved entries; the implementation also maintains proof
+  and disproof-piece information. The Python binding exposes search outcomes,
+  first move, PV and node count, not the complete TT or a proof DAG.
+- [mShogi DF-PN core](https://github.com/jweathers777/mShogi/blob/main/crates/mshogi-search/src/alphabeta/mate.rs)
+  and [Shogi proof helper](https://github.com/jweathers777/mShogi/blob/main/crates/mshogi-runner/examples/support/shogi_mate_proof.rs):
+  the former is a game-independent DF-PN implementation; the latter uses
+  native Shogi positions and repetition identity with a short proof horizon.
+- [DeepLearningShogi](https://github.com/TadaoYamaoka/DeepLearningShogi):
+  the neural/MCTS learning stack is suitable for policy/value guidance and
+  self-play data, not for proof acceptance.
+- [nozaq/shogi-rs](https://github.com/nozaq/shogi-rs):
+  an independent Rust rules implementation candidate; its exact conformance
+  with the CFE ruleset still requires differential tests.
+- [Fairy-Stockfish](https://github.com/fairy-stockfish/Fairy-Stockfish):
+  a variant-engine and differential-opponent reference, not the trusted
+  standard-Shogi rules verifier.
+- [lishogi](https://github.com/WandererXII/lishogi) and
+  [shogiground](https://github.com/WandererXII/shogiground):
+  online-play/server and board-UI references respectively, not proof engines.
