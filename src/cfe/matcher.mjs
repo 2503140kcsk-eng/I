@@ -22,6 +22,8 @@ function normalizeCube(features) {
 
 export function createFootprint(certificate, features = {}) {
   if (!certificate || certificate.schema !== "cfe.shogi.certificate" ||
+      certificate.version !== 1 ||
+      (certificate.attackerSide !== "b" && certificate.attackerSide !== "w") ||
       !certificate.nodes || !certificate.nodes[certificate.root]) {
     throw new TypeError("A well-formed certificate is required");
   }
@@ -31,6 +33,7 @@ export function createFootprint(certificate, features = {}) {
     version: 1,
     rulesetId: certificate.rulesetId,
     verifierAbi: certificate.verifierAbi,
+    attackerSide: certificate.attackerSide,
     rootNodeId: certificate.root,
     rootState: cloneCanonical(root.state),
     cube: normalizeCube(features)
@@ -47,8 +50,9 @@ export function matchFootprint(footprint, query) {
     return { decision: "MISS", requiresVerification: true, reason: "invalid-input" };
   }
   if (footprint.rulesetId !== query.rulesetId ||
-      footprint.verifierAbi !== query.verifierAbi) {
-    return { decision: "MISS", requiresVerification: true, reason: "ruleset-or-abi-mismatch" };
+      footprint.verifierAbi !== query.verifierAbi ||
+      footprint.attackerSide !== query.attackerSide) {
+    return { decision: "MISS", requiresVerification: true, reason: "ruleset-abi-or-attacker-mismatch" };
   }
   if (!query.state || typeof query.state !== "object") {
     return { decision: "MISS", requiresVerification: true, reason: "missing-query-state" };
