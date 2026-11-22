@@ -88,7 +88,7 @@ complete AND/OR quantification.
 - YaneuraOu: primary ordinary search, NNUE, USI and mate-search candidate
   generation. Keep it behind a USI proxy.
 - cshogi: Python-side DFPN experiments, move-generation oracle and differential
-  test harness. Its current Cython DfPn binding exposes search/search_andsearch,
+  test harness. Its current Cython DfPn binding exposes search/search_andnode,
   first move, PV and searched-node count; it does not export a complete proof
   DAG. A CFE-labelled DAG exporter must be developed separately.
 - dlshogi: self-play, training data, policy/value inference and GPU experiments.
