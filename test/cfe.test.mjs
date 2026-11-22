@@ -116,7 +116,7 @@ test("production verifier mode rejects an opaque digest without a history witnes
 test("production verifier mode rejects a history ledger with a mismatched root commitment", async function () {
   const initialSfen = "4k4/9/9/9/9/9/9/9/4K4 b - 1";
   const ledger = await createHistoryLedger({
-    rulesetId: "test-real-history-v1",
+    rulesetId: "test-tsume-v1",
     initialSfen: initialSfen
   });
   const fixture = makeRules();
