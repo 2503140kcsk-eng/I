@@ -50,9 +50,9 @@ against the exact requested root position and its history.
 
 ## Verification
 
-- Latest completed source CI: **29/29 tests passed** on Node.js 22.
-- The tests exercise synthetic rule adapters and fail-closed history checks.
-- They do not establish conformance with actual Japanese Shogi.
+- Latest completed push and PR CI on commit `f22fe6aa05e49ee91ca8f0ce0a633aca2761792c`: **33/33 Node.js tests passed** on Node.js 22.
+- The separate pinned `shogi-rs 0.12.2` audit: **2/2 Rust tests passed**, reproducing the SFEN bulk-history truncation described below.
+- The CFE proof tests use synthetic rules adapters and fail-closed history checks; they do not establish conformance with actual Japanese Shogi.
 
 Run the reference core locally with Node.js 22 or newer:
 
