@@ -1,72 +1,102 @@
 # CFE Shogi
 
 CFE Shogi is an open-source research prototype for **proof-carrying shogi search**.
-
-The repository currently contains an executable reference core for the CFE
-certificate pipeline. It is deliberately not presented as a complete shogi AI,
-a production rules engine, or a tournament-strength engine.
+It separates heuristic move selection from independently checkable mate evidence.
 
 ## Implemented reference core
 
-- **Certificate Extractor** — converts a labelled AND/OR proof DAG into
-  content-addressed certificate nodes.
-- **Footprint Matcher** — finds exact-state and feature-cube candidates.
-  An abstract match is only a retrieval hint and never transfers proof validity.
-- **Certificate Verifier** — checks finite proof DAG structure, legal checking
-  moves, complete defender-evasion coverage, exact child states, terminal mate,
-  history context, hashes and resource limits through a rules adapter.
-- **Governor** — schedules proof verification against CPU, GPU, memory and
-  thermal budgets. A schedule is not itself a verification result.
-- **Tests** — synthetic game fixtures exercise valid proofs and fail-closed
-  rejection paths.
+- **Canonical certificate format** — deterministic JSON, SHA-256 content
+  addressing, version/ruleset/verifier-ABI gates and absolute attacker color.
+- **Certificate Extractor** — converts an untrusted, labelled finite AND/OR DAG
+  into a content-addressed certificate; the target root must be supplied
+  separately and the candidate must pass verification before it is returned.
+- **Certificate Verifier** — checks proof-DAG hashes and structure, attacker
+  checking moves, complete defender-evasion coverage, exact child states,
+  terminal status, history commitments, cycle freedom and resource limits
+  through a rules adapter.
+- **Footprint Matcher** — exact matches remain verification candidates;
+  non-empty feature-cube hits on different states are retrieval hints only.
+  An empty cube never matches every position.
+- **Governor** — prioritizes verification against CPU/GPU/memory/thermal
+  budgets. Scheduling never authorizes proof acceptance.
+- **History ledger** — hash-chains the initial SFEN and each recorded ply, and
+  binds cache identity to ruleset + SFEN + history digest.
+- **USI observer** — parses common position/go commands and labels a
+  YaneuraOu checkmate PV as ENGINE_CLAIM_ONLY, never as a certificate.
 
 ## Current trust boundary
 
 The rules adapter is currently a **synthetic test fixture**, not a complete
-implementation of Japanese shogi. The repository does not yet contain a
-production cshogi or Rust rules adapter, an actual DFPN proof exporter, a
-YaneuraOu USI proxy, a mobile application, or a deployed online service.
+implementation of Japanese shogi. The history ledger provides tamper-evident
+commitments, not proof that each move was legal. A production verifier must
+replay the committed game history, independently recompute every successor
+position/check flag, and adjudicate repetition, perpetual check, pawn-drop mate
+and the chosen ruleset's other terminal conditions.
 
-No evaluation score, principal variation, DFPN number, neural output or
-condition-cube hit may be treated as a proof. A real certificate can be
-accepted only after an independent production rules verifier checks it.
+The repository does not yet contain a production Shogi rules verifier, an
+actual DFPN proof-DAG exporter, a YaneuraOu process supervisor, a native mobile
+application, a WebAssembly verifier build, or a deployed online service.
 
-## Development
+No evaluation score, principal variation, DFPN proof/disproof number, neural
+output or condition-cube hit may be treated as a proof. A real certificate may
+be accepted only after an independent production rules verifier checks it
+against the exact requested root position and its history.
 
-Requirements: Node.js 22 or newer.
+## Verification
+
+Latest checked commit: `447d65d41f8b7fff5e5842ae842bc477f1c7df96`.
+
+- GitHub Actions syntax check: passed.
+- Unit tests: **27/27 passed** on Node.js 22.
+- Tests exercise a synthetic rules adapter. They do not establish conformance
+  with actual Japanese Shogi.
+
+Run locally with Node.js 22 or newer:
 
 ```sh
 npm run check
 npm test
 ```
 
-The project uses Node's built-in test runner and has no npm runtime dependencies.
+The project has no npm runtime dependencies and uses Node's built-in test runner.
 
-## Planned engine adapters
+## Planned engine and rules adapters
 
-- **YaneuraOu** — primary USI search and NNUE engine; initially integrated
-  through a process/protocol boundary, not by modifying its search core.
-- **cshogi** — DFPN experiments, candidate export and Python differential
-  testing.
-- **DeepLearningShogi (dlshogi)** — self-play, training data and GPU
-  policy/value inference. Neural outputs remain heuristic.
-- **nozaq/shogi-rs** — independent Rust rules/verifier candidate, pending full
-  conformance testing for repetition, perpetual check, pawn-drop mate and the
-  selected ruleset.
-- **mShogi** — optional experimental comparator after pinning its exact source
-  revision, license and verified capabilities.
-- **Fairy-Stockfish** — variant engine and differential test opponent.
-- **lishogi / shogiground** — online-play and browser-board references; the UI
-  does not own the trusted rules implementation.
+- **[YaneuraOu](https://github.com/yaneurao/YaneuraOu)** — primary USI/NNUE
+  search engine and mate-search candidate generator. The current Tanuki mate
+  implementation uses df-pn with TCA; its source still lists dominance,
+  ProofPieces and SNDA as TODOs. Its USI mate output is not a full proof DAG.
+- **[cshogi](https://github.com/TadaoYamaoka/cshogi)** — DFPN baseline,
+  hand-dominance / proof-piece experiments, move-generation oracle and
+  differential tests. Its Python binding currently returns search results,
+  first move, PV and searched-node count; a complete CFE DAG exporter remains
+  to be implemented.
+- **[DeepLearningShogi (dlshogi)](https://github.com/TadaoYamaoka/DeepLearningShogi)**
+  — self-play, training data and GPU policy/value inference. Neural outputs
+  remain heuristic and cannot certify mate.
+- **[nozaq/shogi-rs](https://github.com/nozaq/shogi-rs)** — independent Rust
+  rules/verifier candidate. It must pass a pinned standard-Shogi conformance
+  suite before it is trusted.
+- **[mShogi](https://github.com/jweathers777/mShogi)** — Rust DF-PN comparator
+  and native Shogi proof-helper reference. It is useful for testing algorithms
+  and edge cases, but its current mate result is not a CFE proof DAG.
+- **[Fairy-Stockfish](https://github.com/fairy-stockfish/Fairy-Stockfish)** —
+  variant engine and differential opponent, not the authoritative rules
+  verifier for standard Shogi.
+- **[lishogi](https://github.com/WandererXII/lishogi)** and
+  **[shogiground](https://github.com/WandererXII/shogiground)** — online-play
+  and board-UI references. The UI must never become the trusted rules layer.
 
-## Planned deployment
+## Portable target
 
-The target is a shared, versioned certificate format with native iOS and
-WebAssembly verifier builds. The native iOS path should use a small native
-rules/verifier library; the browser path can use WebAssembly and workers.
-Platform-specific engines and neural accelerators must not change certificate
-semantics.
+The intended architecture is a shared, versioned certificate format with
+independent native and WebAssembly verifiers. The first production target is a
+native rules/verifier adapter; browser and iPhone builds should consume exactly
+the same certificate semantics. GPU/neural acceleration may guide search and
+move ordering but must not change proof validity.
 
-## License
+## Licensing
 
-GPL-3.0-only. See [LICENSE](LICENSE).
+This repository is GPL-3.0-only. Before copying or linking code from other
+projects, pin revisions and review their licences and transitive dependencies.
+See [LICENSE](LICENSE).
