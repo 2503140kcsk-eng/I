@@ -13,7 +13,9 @@ canonical vectors before they are considered interoperable.
 1. Input is JSON only: null, boolean, string, finite number, dense array or
    plain object.
 2. Object keys are ordered lexicographically by UTF-16 code units, matching
-   ECMAScript string ordering.
+   ECMAScript string ordering. This includes integer-looking keys: "10" sorts
+   before "2"; implementations must not use JSON.stringify's numeric-index
+   property enumeration order.
 3. Strings and keys must contain well-formed Unicode scalar sequences. No
    Unicode normalization is applied: code-point sequences are byte-significant.
 4. Arrays preserve order and may not be sparse or have custom properties.
@@ -26,7 +28,8 @@ canonical vectors before they are considered interoperable.
 8. Unknown object fields are rejected by each versioned schema even though
    the general canonicalizer can encode plain JSON objects.
 
-Reference vectors are in spec/canonical-v1-vectors.json.
+Reference vectors are in spec/canonical-v1-vectors.json, including a
+numeric-looking-key vector that detects host-language property-order drift.
 
 ## Certificate v1 envelope
 

@@ -76,8 +76,15 @@ function normalizeJson(value, path, ancestors, depth, budget) {
 
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) throw new CanonicalizationError("Non-plain object at " + path);
-    if (Reflect.ownKeys(value).some((key) => typeof key === "symbol")) {
+    const ownKeys = Reflect.ownKeys(value);
+    if (ownKeys.some((key) => typeof key === "symbol")) {
       throw new CanonicalizationError("Symbol key at " + path);
+    }
+    for (const key of ownKeys) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !descriptor.enumerable) {
+        throw new CanonicalizationError("Non-enumerable object property at " + path + "." + String(key));
+      }
     }
     const out = Object.create(null);
     for (const key of Object.keys(value).sort()) {
@@ -94,8 +101,25 @@ function normalizeJson(value, path, ancestors, depth, budget) {
   }
 }
 
+function stringifyNormalized(value) {
+  if (value === null || typeof value === "boolean" || typeof value === "number" ||
+      typeof value === "string") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return "[" + value.map(stringifyNormalized).join(",") + "]";
+  }
+  // Do not rely on JSON.stringify(object): ECMAScript enumerates integer-index
+  // keys numerically, while CFE-CJSON-1 requires lexicographic UTF-16 ordering.
+  const keys = Object.keys(value).sort();
+  return "{" + keys.map((key) =>
+    JSON.stringify(key) + ":" + stringifyNormalized(value[key])
+  ).join(",") + "}";
+}
+
 export function canonicalJson(value) {
-  return JSON.stringify(normalizeJson(value, "$", new Set(), 0, { values: 0 }));
+  const normalized = normalizeJson(value, "$", new Set(), 0, { values: 0 });
+  return stringifyNormalized(normalized);
 }
 export function cloneCanonical(value) {
   return JSON.parse(canonicalJson(value));

@@ -368,6 +368,11 @@ test("canonical JSON rejects ambiguous values across native and WASM runtimes", 
   const array = [1];
   array.extra = 2;
   assert.throws(function () { canonicalJson(array); }, /Custom array property/);
+  const numericKeys = { "2": "two", "10": "ten" };
+  assert.equal(canonicalJson(numericKeys), "{\\"10\\":\\"ten\\",\\"2\\":\\"two\\"}");
+  const hidden = {};
+  Object.defineProperty(hidden, "secret", { value: 1, enumerable: false });
+  assert.throws(function () { canonicalJson(hidden); }, /Non-enumerable/);
 });
 
 test("extractor builds and verifies a complete AND/OR mate DAG", async function () {
