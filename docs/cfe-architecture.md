@@ -25,13 +25,20 @@ production Shogi rules implementation and does not certify real engine output.
 ## Certificate semantics
 
 Schema: cfe.shogi.certificate, version 1, objective: tsume-mate.
-The ruleset ID and verifier ABI are exact compatibility gates. Nodes are
-content-addressed with SHA-256 over canonical JSON.
+The ruleset ID and verifier ABI are exact compatibility gates. The certificate
+also binds the absolute attacker side. Every verification call must provide an
+out-of-band expectedRootState; a certificate verified without an exact root
+binding is not eligible for pruning. Nodes are content-addressed with SHA-256
+over canonical JSON.
 
 Each proof node contains:
 
-- state: canonical SFEN, turn (attacker or defender), and a digest of the
-  history required for repetition-sensitive adjudication;
+- state: canonical SFEN, absolute side-to-move ("b" or "w"), and a SHA-256
+  digest committing to the history context needed for repetition adjudication;
+- certificate-level attackerSide ("b" or "w"), which fixes the attacker role
+  for every node; a root-state turn must equal attackerSide;
+- expectedRootState, supplied out-of-band by the caller and required by the
+  verifier, binding the certificate to the exact requested search position;
 - kind: OR, AND or TERMINAL_MATE;
 - edges: sorted USI move plus child-node digest.
 
@@ -53,7 +60,10 @@ to the current board. A board-only SFEN-derived transposition key is therefore
 insufficient for reusing a solved result. historyDigest commits to the history
 context used by the rules adapter. A production adapter must specify and test
 which history data is required; a digest without the underlying committed data
-is not enough for an external auditor to reconstruct a proof.
+is not enough for an external auditor to reconstruct a proof. It must also
+provide a terminalStatus result with exactly three values: ongoing, checkmate,
+or non-mate-terminal. Repetition, perpetual-check adjudication and every other
+rule-decided outcome are non-mate-terminal, never a proof leaf.
 
 ## Footprint policy
 
@@ -82,9 +92,12 @@ complete AND/OR quantification.
 - nozaq/shogi-rs: independent Rust rules and verifier implementation, subject
   to tests for repetition, perpetual check, pawn-drop mate and the chosen
   declaration/impasse rules. It is MIT-licensed.
-- mShogi: optional experimental comparator only after its exact source revision,
-  licence, rules and tests are pinned. Do not assume a DFPN implementation
-  based on its name.
+- mShogi: a real Rust df-pn mate comparator. Its shared mate core searches
+  continuous checks, stores PN/DN and proof length, and treats rule-decided
+  positions as non-mates; its separate Shogi proof example uses native legality
+  including pawn-drop mate. It is useful for experiments and conformance
+  fixtures, but returns lines/results rather than the CFE proof DAG required
+  here. Pin the exact revision and BSD-3-Clause notices before importing code.
 - Fairy-Stockfish: optional variant engine and differential opponent, not the
   authoritative standard-Shogi verifier.
 - lishogi and shogiground: UI and online-play references. Shogiground is a board
@@ -136,3 +149,27 @@ rules verifier must replay every move, independently recompute resulting
 positions and check flags, and apply the exact repetition/perpetual-check
 adjudication of the pinned ruleset. The hash chain alone cannot establish that
 the recorded game was legal.
+
+
+## DFPN implementation comparison
+
+The current source files show a useful division of experimental responsibilities:
+
+- YaneuraOu's Tanuki mate engine uses df-pn with TCA and stores PN/DN search
+  metadata. Its source still lists dominance, ProofPieces and SNDA as TODOs.
+- cshogi has a separate OSL-based DFPN implementation. Its transposition entries
+  include the hand, PN, DN, depth and searched-node count; its lookup code
+  explicitly compares hand superiority for solved entries. This is an
+  implementation-level baseline for dominance experiments, not a certificate
+  export interface.
+- mShogi has a Rust df-pn mate core with a proof table and history-sensitive
+  rule-score exclusions. Its Shogi proof helper is independently grounded in
+  native Shogi rules and pawn-drop-mate legality, but uses bounded proof lines,
+  not a reusable complete certificate graph.
+- dlshogi's policy/value network and MCTS self-play are training and move-order
+  sources. They do not become proof authorities by producing high-confidence
+  scores.
+
+CFE therefore keeps PN/DN, PV and neural output as provenance and search
+guidance. The certificate verifier reconstructs AND/OR obligations from legal
+moves, rather than trusting those summaries.
