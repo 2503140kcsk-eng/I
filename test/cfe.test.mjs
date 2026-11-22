@@ -7,9 +7,15 @@ import {
   matchFootprint,
   planTasks,
   verifyCertificate,
-  VERIFIER_ABI
+  VERIFIER_ABI,
+  createHistoryLedger,
+  appendHistoryEvent,
+  verifyHistoryLedger,
+  historyPositionKey
 } from "../src/cfe/index.mjs";
 import { parsePositionCommand, parseGoCommand, UsiProxyObserver } from "../src/cfe/usi-observer.mjs";
+
+const historyDigest = function (digit) { return String(digit).repeat(64); };
 
 function makeRules() {
   const transitions = new Map([
@@ -20,12 +26,12 @@ function makeRules() {
     ["attacker-2|m2", "mate-2"]
   ]);
   const states = new Map([
-    ["root", { sfen: "root position", historyDigest: "h-root", turn: "attacker" }],
-    ["defender", { sfen: "defender position", historyDigest: "h-d", turn: "defender" }],
-    ["attacker-1", { sfen: "attacker branch 1", historyDigest: "h-a1", turn: "attacker" }],
-    ["attacker-2", { sfen: "attacker branch 2", historyDigest: "h-a2", turn: "attacker" }],
-    ["mate-1", { sfen: "mate position 1", historyDigest: "h-m1", turn: "defender" }],
-    ["mate-2", { sfen: "mate position 2", historyDigest: "h-m2", turn: "defender" }]
+    ["root", { sfen: "root position", historyDigest: historyDigest(1), turn: "attacker" }],
+    ["defender", { sfen: "defender position", historyDigest: historyDigest(2), turn: "defender" }],
+    ["attacker-1", { sfen: "attacker branch 1", historyDigest: historyDigest(3), turn: "attacker" }],
+    ["attacker-2", { sfen: "attacker branch 2", historyDigest: historyDigest(4), turn: "attacker" }],
+    ["mate-1", { sfen: "mate position 1", historyDigest: historyDigest(5), turn: "defender" }],
+    ["mate-2", { sfen: "mate position 2", historyDigest: historyDigest(6), turn: "defender" }]
   ]);
 
   const rules = {
@@ -87,6 +93,76 @@ function candidateFrom(states) {
   };
 }
 
+
+
+test("history ledger commits to every move and resulting SFEN", async function () {
+  const initialSfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+  let ledger = await createHistoryLedger({
+    rulesetId: "standard-shogi-tsume-v1",
+    initialSfen: initialSfen
+  });
+  ledger = await appendHistoryEvent(ledger, {
+    move: "7g7f",
+    mover: "black",
+    gaveCheck: false,
+    resultingSfen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 2"
+  });
+  ledger = await appendHistoryEvent(ledger, {
+    move: "3c3d",
+    mover: "white",
+    gaveCheck: false,
+    resultingSfen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 3"
+  });
+  const verified = await verifyHistoryLedger(ledger);
+  assert.equal(verified.ok, true);
+  assert.equal(verified.ply, 2);
+  assert.equal(verified.sideToMove, "black");
+  assert.equal(verified.digest, ledger.digest);
+});
+
+test("history ledger rejects tampering and wrong mover order", async function () {
+  const initialSfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+  const ledger = await createHistoryLedger({ rulesetId: "standard-shogi-v1", initialSfen });
+  const valid = await appendHistoryEvent(ledger, {
+    move: "7g7f",
+    mover: "black",
+    gaveCheck: false,
+    resultingSfen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 2"
+  });
+  const tampered = structuredClone(valid);
+  tampered.events[0].move = "2g2f";
+  assert.equal((await verifyHistoryLedger(tampered)).ok, false);
+  await assert.rejects(appendHistoryEvent(ledger, {
+    move: "3c3d",
+    mover: "white",
+    gaveCheck: false,
+    resultingSfen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 3"
+  }), /mover/);
+});
+
+test("position cache key includes ruleset and history digest", async function () {
+  const state = {
+    sfen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+    historyDigest: historyDigest(1)
+  };
+  const a = await historyPositionKey({
+    rulesetId: "standard-shogi-v1",
+    sfen: state.sfen,
+    historyDigest: state.historyDigest
+  });
+  const b = await historyPositionKey({
+    rulesetId: "standard-shogi-v1",
+    sfen: state.sfen,
+    historyDigest: historyDigest(2)
+  });
+  const c = await historyPositionKey({
+    rulesetId: "other-rules-v1",
+    sfen: state.sfen,
+    historyDigest: state.historyDigest
+  });
+  assert.notEqual(a, b);
+  assert.notEqual(a, c);
+});
 
 test("USI position parser handles startpos with a move history", function () {
   const parsed = parsePositionCommand("position startpos moves 7g7f 3c3d 2g2f");
@@ -178,7 +254,7 @@ test("verifier checks complete history context at the root", async function () {
   const fixture = makeRules();
   const extracted = await extractCertificate(candidateFrom(fixture.states), fixture.rules);
   assert.equal(extracted.ok, true);
-  const otherHistory = { ...fixture.states.get("root"), historyDigest: "different-history" };
+  const otherHistory = { ...fixture.states.get("root"), historyDigest: historyDigest("f") };
   const result = await verifyCertificate(extracted.certificate, fixture.rules, {
     expectedRootState: otherHistory
   });
@@ -227,7 +303,7 @@ test("condition-cube hits on a different state are retrieval hints only", async 
   const abstract = matchFootprint(footprint, {
     rulesetId: fixture.rules.rulesetId,
     verifierAbi: fixture.rules.verifierAbi,
-    state: { sfen: "other position", historyDigest: "other-history", turn: "attacker" },
+    state: { sfen: "other position", historyDigest: historyDigest("e"), turn: "attacker" },
     features: { materialClass: "fixture-A" }
   });
   assert.equal(abstract.decision, "ABSTRACT_CANDIDATE");
@@ -241,7 +317,7 @@ test("footprint refuses reuse across rulesets", function () {
     rulesetId: "rules-v1",
     verifierAbi: VERIFIER_ABI,
     nodes: {
-      "root-id": { state: { sfen: "sfen", historyDigest: "history", turn: "attacker" } }
+      "root-id": { state: { sfen: "sfen", historyDigest: historyDigest("a"), turn: "attacker" } }
     }
   };
   const footprint = createFootprint(certificate);
@@ -261,7 +337,7 @@ test("an empty condition cube is not a universal footprint hit", function () {
     rulesetId: "rules-v1",
     verifierAbi: VERIFIER_ABI,
     nodes: {
-      "root-id": { state: { sfen: "sfen", historyDigest: "history", turn: "attacker" } }
+      "root-id": { state: { sfen: "sfen", historyDigest: historyDigest("a"), turn: "attacker" } }
     }
   };
   const footprint = createFootprint(certificate);

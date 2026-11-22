@@ -19,3 +19,4 @@ export { extractCertificate } from "./extractor.mjs";
 export { FOOTPRINT_SCHEMA, createFootprint, matchFootprint } from "./matcher.mjs";
 export { planTasks } from "./governor.mjs";
 export { parsePositionCommand, parseGoCommand, UsiProxyObserver } from "./usi-observer.mjs";
+export { createHistoryLedger, appendHistoryEvent, verifyHistoryLedger, historyPositionKey } from "./history.mjs";

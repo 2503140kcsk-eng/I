@@ -24,8 +24,8 @@ function assertStateEnvelope(state, label) {
   if (typeof state.sfen !== "string" || state.sfen.length === 0) {
     reject("INVALID_STATE", label + ".sfen must be a non-empty string");
   }
-  if (typeof state.historyDigest !== "string" || state.historyDigest.length === 0) {
-    reject("MISSING_HISTORY_CONTEXT", label + ".historyDigest is required");
+  if (typeof state.historyDigest !== "string" || !HASH_RE.test(state.historyDigest)) {
+    reject("INVALID_HISTORY_COMMITMENT", label + ".historyDigest must be a lowercase SHA-256 digest");
   }
   if (!TURN_VALUES.has(state.turn)) reject("INVALID_STATE", label + ".turn must be attacker or defender");
 }

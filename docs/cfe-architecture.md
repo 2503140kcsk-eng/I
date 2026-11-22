@@ -120,3 +120,19 @@ pass-through, and tracks search lifecycle and YaneuraOu mate claims. A
 a proof tree and cannot be accepted as a certificate. The production process
 supervisor, engine selection, cancellation and certificate export are future
 integration work.
+
+
+## History commitments and transposition identity
+
+Each state envelope carries a lowercase SHA-256 `historyDigest`, not a
+board-only key. The reference history ledger commits to the initial SFEN and
+then hash-chains each ply's mover, USI move, resulting SFEN and check flag.
+`historyPositionKey` combines ruleset ID, SFEN and that digest. Consequently,
+identical boards reached through different histories do not alias in the
+solved-evidence cache.
+
+The ledger is an integrity commitment, not a legality proof: the production
+rules verifier must replay every move, independently recompute resulting
+positions and check flags, and apply the exact repetition/perpetual-check
+adjudication of the pinned ruleset. The hash chain alone cannot establish that
+the recorded game was legal.

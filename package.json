@@ -5,7 +5,7 @@
   "type": "module",
   "engines": { "node": ">=22" },
   "scripts": {
-    "check": "node --check src/cfe/index.mjs && node --check src/cfe/usi-observer.mjs && node --check test/cfe.test.mjs",
+    "check": "node --check src/cfe/index.mjs && node --check src/cfe/usi-observer.mjs && node --check src/cfe/history.mjs && node --check test/cfe.test.mjs",
     "test": "node --test"
   }
 }
