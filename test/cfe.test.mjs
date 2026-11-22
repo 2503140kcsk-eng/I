@@ -34,8 +34,9 @@ function makeRules() {
       const state = Array.from(states.values()).find(function (value) {
         return canonicalJson(value) === canonicalJson(envelope);
       });
-      if (!state) throw new Error("Unknown test position");
-      return state;
+      if (state) return state;
+      if (envelope && envelope.sfen === "root position") return { ...envelope };
+      throw new Error("Unknown test position");
     },
     canonicalState: function (state) { return { ...state }; },
     sideToMove: function (state) { return state.turn; },
@@ -105,6 +106,8 @@ test("verifier rejects an omitted defender evasion", async function () {
   const fixture = makeRules();
   const candidate = candidateFrom(fixture.states);
   candidate.nodes.d.edges.pop();
+  delete candidate.nodes.a2;
+  delete candidate.nodes.t2;
   const result = await extractCertificate(candidate, fixture.rules);
   assert.equal(result.ok, false);
   assert.equal(result.code, "INCOMPLETE_DEFENDER_COVERAGE");
@@ -197,6 +200,27 @@ test("footprint refuses reuse across rulesets", function () {
   assert.equal(result.decision, "MISS");
 });
 
+
+test("an empty condition cube is not a universal footprint hit", function () {
+  const certificate = {
+    schema: "cfe.shogi.certificate",
+    root: "root-id",
+    rulesetId: "rules-v1",
+    verifierAbi: VERIFIER_ABI,
+    nodes: {
+      "root-id": { state: { sfen: "sfen", historyDigest: "history", turn: "attacker" } }
+    }
+  };
+  const footprint = createFootprint(certificate);
+  const result = matchFootprint(footprint, {
+    rulesetId: "rules-v1",
+    verifierAbi: VERIFIER_ABI,
+    state: { sfen: "different", historyDigest: "other", turn: "attacker" },
+    features: {}
+  });
+  assert.equal(result.decision, "MISS");
+});
+
 test("Governor schedules verification ahead of lower-value search", function () {
   const result = planTasks([
     { id: "deep-search", kind: "normal_search", expectedValue: 0.9, confidence: 0.9,
@@ -209,7 +233,8 @@ test("Governor schedules verification ahead of lower-value search", function () 
   });
   assert.equal(result.selected[0].id, "verify");
   assert.equal(result.verificationBlocked, false);
-  assert.equal(result.mayAcceptCertificate, true);
+  assert.equal(result.verificationScheduled, true);
+  assert.equal(result.proofAcceptanceAllowed, false);
 });
 
 test("Governor blocks proof acceptance when verification exceeds budget", function () {
@@ -221,7 +246,8 @@ test("Governor blocks proof acceptance when verification exceeds budget", functi
     currentTemperatureC: 30, maxTemperatureC: 40
   });
   assert.equal(result.verificationBlocked, true);
-  assert.equal(result.mayAcceptCertificate, false);
+  assert.equal(result.verificationScheduled, false);
+  assert.equal(result.proofAcceptanceAllowed, false);
   assert.equal(result.deferred[0].reason, "resource-budget");
 });
 

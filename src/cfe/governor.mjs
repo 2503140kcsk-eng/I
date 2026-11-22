@@ -113,6 +113,7 @@ export function planTasks(tasks, budget, weights = {}) {
     remainingBudget: remaining,
     projectedTemperatureC: temperature,
     verificationBlocked: verificationBlocked,
-    mayAcceptCertificate: verificationTasks.length > 0 && !verificationBlocked
+    verificationScheduled: verificationTasks.length > 0 && !verificationBlocked,
+    proofAcceptanceAllowed: false
   };
 }

@@ -1,33 +1,72 @@
 # CFE Shogi
 
-CFE Shogi is a free, open-source Japanese shogi PWA built around a **fail-closed certificate layer**.
+CFE Shogi is an open-source research prototype for **proof-carrying shogi search**.
 
-## Source snapshot
+The repository currently contains an executable reference core for the CFE
+certificate pipeline. It is deliberately not presented as a complete shogi AI,
+a production rules engine, or a tournament-strength engine.
 
-Download the source distribution: [CFE-Shogi-source-v0.1.0.tar.gz](CFE-Shogi-source-v0.1.0.tar.gz)
+## Implemented reference core
 
-The archive contains the browser PWA, reference shogi rules, CFE certificate envelope and fail-closed verifier, Governor, Supabase schema and move-validation Edge Function, YaneuraOu WebAssembly build workflow, tests, documentation, and third-party notices.
+- **Certificate Extractor** — converts a labelled AND/OR proof DAG into
+  content-addressed certificate nodes.
+- **Footprint Matcher** — finds exact-state and feature-cube candidates.
+  An abstract match is only a retrieval hint and never transfers proof validity.
+- **Certificate Verifier** — checks finite proof DAG structure, legal checking
+  moves, complete defender-evasion coverage, exact child states, terminal mate,
+  history context, hashes and resource limits through a rules adapter.
+- **Governor** — schedules proof verification against CPU, GPU, memory and
+  thermal budgets. A schedule is not itself a verification result.
+- **Tests** — synthetic game fixtures exercise valid proofs and fail-closed
+  rejection paths.
 
-## Local development
+## Current trust boundary
 
-- Node.js 22 or newer
-- `npm test`
-- `npm run check`
-- Serve this directory through localhost or HTTPS and open `index.html`.
-- On iPhone/iPad: Safari → Share → Add to Home Screen.
+The rules adapter is currently a **synthetic test fixture**, not a complete
+implementation of Japanese shogi. The repository does not yet contain a
+production cshogi or Rust rules adapter, an actual DFPN proof exporter, a
+YaneuraOu USI proxy, a mobile application, or a deployed online service.
 
-Local two-player play and record export/import work without an account. Online play requires a separately configured Supabase project. AI play requires building the optional YaneuraOu WASM artifact and checking it on an actual iOS device.
+No evaluation score, principal variation, DFPN number, neural output or
+condition-cube hit may be treated as a proof. A real certificate can be
+accepted only after an independent production rules verifier checks it.
 
-## CFE safety boundary
+## Development
 
-The current version does **not** implement generalized proof extraction from a DFPN proof tree. It implements a versioned certificate format and a conservative verifier interface. E/H certificates do not cut search unless an independent verifier explicitly accepts them; M/P certificates remain advisory. This prevents heuristic footprints from becoming false proofs.
+Requirements: Node.js 22 or newer.
 
-## Scope and limitations
+```sh
+npm run check
+npm test
+```
 
-This is an engineering foundation, **not a tournament-ready or world-championship-strength engine**. The reference rules implementation has unit tests but has not yet received independent rule-conformance certification. Online server deployment and the YaneuraOu WASM build are setup/build tasks; they are not claimed to be live in this repository snapshot.
+The project uses Node's built-in test runner and has no npm runtime dependencies.
 
-No ads, subscriptions, in-app purchases, or paid feature gates are included. Hosting providers' free tiers have quotas and may change; this project does not promise unlimited free hosting or unlimited player capacity.
+## Planned engine adapters
+
+- **YaneuraOu** — primary USI search and NNUE engine; initially integrated
+  through a process/protocol boundary, not by modifying its search core.
+- **cshogi** — DFPN experiments, candidate export and Python differential
+  testing.
+- **DeepLearningShogi (dlshogi)** — self-play, training data and GPU
+  policy/value inference. Neural outputs remain heuristic.
+- **nozaq/shogi-rs** — independent Rust rules/verifier candidate, pending full
+  conformance testing for repetition, perpetual check, pawn-drop mate and the
+  selected ruleset.
+- **mShogi** — optional experimental comparator after pinning its exact source
+  revision, license and verified capabilities.
+- **Fairy-Stockfish** — variant engine and differential test opponent.
+- **lishogi / shogiground** — online-play and browser-board references; the UI
+  does not own the trusted rules implementation.
+
+## Planned deployment
+
+The target is a shared, versioned certificate format with native iOS and
+WebAssembly verifier builds. The native iOS path should use a small native
+rules/verifier library; the browser path can use WebAssembly and workers.
+Platform-specific engines and neural accelerators must not change certificate
+semantics.
 
 ## License
 
-The project is GPL-3.0-only. See [LICENSE](LICENSE), [docs/licensing.md](docs/licensing.md), and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+GPL-3.0-only. See [LICENSE](LICENSE).

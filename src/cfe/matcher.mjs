@@ -65,7 +65,7 @@ export function matchFootprint(footprint, query) {
   let cubeMatches = false;
   try {
     const features = query.features || {};
-    cubeMatches = footprint.cube.every(function (item) {
+    cubeMatches = footprint.cube.length > 0 && footprint.cube.every(function (item) {
       return Object.hasOwn(features, item.key) &&
         canonicalJson(features[item.key]) === canonicalJson(item.value);
     });

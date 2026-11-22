@@ -27,17 +27,3 @@ jobs:
 
       - name: Unit tests
         run: npm test
-
-      - name: Verify source archive checksum
-        run: sha256sum --check SHA256SUMS
-
-      - name: Validate source archive paths
-        shell: bash
-        run: |
-          set -euo pipefail
-          tar -tzf CFE-Shogi-source-v0.1.0.tar.gz > /tmp/cfe-archive-files.txt
-          if grep -Eq '(^/|(^|/)\\.\\.(/|$))' /tmp/cfe-archive-files.txt; then
-            echo "Unsafe source archive path" >&2
-            exit 1
-          fi
-          test -s /tmp/cfe-archive-files.txt

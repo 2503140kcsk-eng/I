@@ -84,6 +84,7 @@ export async function verifyCertificate(certificate, rules, options = {}) {
     const maxNodes = options.maxNodes === undefined ? 50000 : options.maxNodes;
     const maxDepth = options.maxDepth === undefined ? 512 : options.maxDepth;
     const maxBytes = options.maxBytes === undefined ? 16 * 1024 * 1024 : options.maxBytes;
+    const maxEdges = options.maxEdges === undefined ? 250000 : options.maxEdges;
 
     const serialized = canonicalJson(certificate);
     if (new TextEncoder().encode(serialized).byteLength > maxBytes) {
@@ -116,6 +117,7 @@ export async function verifyCertificate(certificate, rules, options = {}) {
     const active = new Set();
     const complete = new Set();
     let visitedCount = 0;
+    let edgeCount = 0;
 
     const decodeState = async function (node, id) {
       assertStateEnvelope(node.state, "node " + id + " state");
@@ -142,6 +144,8 @@ export async function verifyCertificate(certificate, rules, options = {}) {
         reject("INVALID_NODE", "Node " + id + " has missing or unknown fields");
       }
       if (!Array.isArray(node.edges)) reject("INVALID_EDGES", "Node " + id + " edges must be an array");
+      edgeCount += node.edges.length;
+      if (edgeCount > maxEdges) reject("EDGE_LIMIT", "Certificate exceeds the edge limit");
 
       let previousMove = null;
       for (const edge of node.edges) {
