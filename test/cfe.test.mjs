@@ -289,6 +289,7 @@ test("exact footprint matches remain candidates and require verification", async
   const exact = matchFootprint(footprint, {
     rulesetId: fixture.rules.rulesetId,
     verifierAbi: fixture.rules.verifierAbi,
+    attackerSide: "b",
     state: fixture.states.get("root"),
     features: { materialClass: "fixture-A", phase: 1 }
   });
@@ -304,6 +305,7 @@ test("condition-cube hits on a different state are retrieval hints only", async 
   const abstract = matchFootprint(footprint, {
     rulesetId: fixture.rules.rulesetId,
     verifierAbi: fixture.rules.verifierAbi,
+    attackerSide: "b",
     state: { sfen: "other position", historyDigest: historyDigest("e"), turn: "b" },
     features: { materialClass: "fixture-A" }
   });
@@ -314,6 +316,7 @@ test("condition-cube hits on a different state are retrieval hints only", async 
 test("footprint refuses reuse across rulesets", function () {
   const certificate = {
     schema: "cfe.shogi.certificate",
+    version: 1,
     root: "root-id",
     rulesetId: "rules-v1",
     verifierAbi: VERIFIER_ABI,
@@ -335,6 +338,7 @@ test("footprint refuses reuse across rulesets", function () {
 test("an empty condition cube is not a universal footprint hit", function () {
   const certificate = {
     schema: "cfe.shogi.certificate",
+    version: 1,
     root: "root-id",
     rulesetId: "rules-v1",
     verifierAbi: VERIFIER_ABI,
