@@ -42,7 +42,7 @@ export function parsePositionCommand(line) {
 }
 
 const GO_NUMERIC = new Set([
-  "btime", "wtime", "byoyomi", "binc", "winc", "movetime", "depth", "nodes", "mate"
+  "btime", "wtime", "byoyomi", "binc", "winc", "movetime", "depth", "nodes"
 ]);
 
 export function parseGoCommand(line) {
@@ -51,6 +51,17 @@ export function parseGoCommand(line) {
   const result = { mode: tokens.includes("mate") ? "mate" : "normal", parameters: {}, flags: [], searchmoves: [] };
   for (let i = 1; i < tokens.length; i += 1) {
     const token = tokens[i];
+    if (token === "mate") {
+      result.mode = "mate";
+      const optionalLimit = tokens[i + 1];
+      if (optionalLimit !== undefined && /^\\d+$/.test(optionalLimit)) {
+        const value = Number(optionalLimit);
+        if (!Number.isSafeInteger(value)) throw new RangeError("USI mate limit is outside the safe integer range");
+        result.parameters.mate = value;
+        i += 1;
+      }
+      continue;
+    }
     if (GO_NUMERIC.has(token)) {
       const raw = tokens[i + 1];
       if (raw === undefined || !/^\d+$/.test(raw)) {
