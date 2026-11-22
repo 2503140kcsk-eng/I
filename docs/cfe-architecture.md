@@ -109,3 +109,14 @@ both on generated positions and a fixed corpus covering promotions, drops,
 nifu, dead-rank pieces, pawn-drop mate, checkmate, repetition, perpetual check
 and history-dependent transpositions. Only after both agree should a real DFPN
 proof exporter be connected to the extractor.
+
+
+## USI observer boundary
+
+The current USI module is a transport-independent protocol observer. It parses
+standard position/go forms, preserves the caller's original command for
+pass-through, and tracks search lifecycle and YaneuraOu mate claims. A
+`checkmate <PV>` response is explicitly marked `ENGINE_CLAIM_ONLY`; it is not
+a proof tree and cannot be accepted as a certificate. The production process
+supervisor, engine selection, cancellation and certificate export are future
+integration work.

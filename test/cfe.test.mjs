@@ -9,6 +9,7 @@ import {
   verifyCertificate,
   VERIFIER_ABI
 } from "../src/cfe/index.mjs";
+import { parsePositionCommand, parseGoCommand, UsiProxyObserver } from "../src/cfe/usi-observer.mjs";
 
 function makeRules() {
   const transitions = new Map([
@@ -85,6 +86,57 @@ function candidateFrom(states) {
     }
   };
 }
+
+
+test("USI position parser handles startpos with a move history", function () {
+  const parsed = parsePositionCommand("position startpos moves 7g7f 3c3d 2g2f");
+  assert.equal(parsed.kind, "startpos");
+  assert.deepEqual(parsed.moves, ["7g7f", "3c3d", "2g2f"]);
+});
+
+test("USI position parser preserves SFEN fields and drops", function () {
+  const parsed = parsePositionCommand(
+    "position sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1 moves 7g7f P*5e"
+  );
+  assert.equal(parsed.kind, "sfen");
+  assert.equal(parsed.sfen, "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1");
+  assert.deepEqual(parsed.moves, ["7g7f", "P*5e"]);
+});
+
+test("USI go parser distinguishes mate search from ordinary search", function () {
+  assert.equal(parseGoCommand("go mate").mode, "mate");
+  const go = parseGoCommand("go btime 10000 wtime 9000 byoyomi 500");
+  assert.equal(go.mode, "normal");
+  assert.equal(go.parameters.btime, 10000);
+  assert.equal(go.parameters.wtime, 9000);
+  assert.equal(go.parameters.byoyomi, 500);
+});
+
+test("USI observer passes commands through and tracks position/search state", function () {
+  const observer = new UsiProxyObserver();
+  const position = observer.acceptGuiLine("position startpos moves 7g7f");
+  assert.equal(position.forward, true);
+  assert.equal(observer.snapshot().position.moves.length, 1);
+  observer.acceptGuiLine("go mate");
+  assert.equal(observer.snapshot().searching, true);
+  assert.equal(observer.snapshot().activeSearch.mode, "mate");
+  observer.acceptEngineLine("checkmate 3c3d 7g7f");
+  assert.equal(observer.snapshot().mateClaim.status, "ENGINE_CLAIM_ONLY");
+  assert.equal(observer.snapshot().mateClaim.proofVerified, false);
+  observer.acceptEngineLine("bestmove resign");
+  assert.equal(observer.snapshot().searching, false);
+});
+
+test("USI observer treats timeout and nomate as engine reports, not certificates", function () {
+  const observer = new UsiProxyObserver();
+  observer.acceptGuiLine("go mate");
+  observer.acceptEngineLine("checkmate timeout");
+  assert.equal(observer.snapshot().mateClaim.status, "INCOMPLETE");
+  assert.equal(observer.snapshot().mateClaim.proofVerified, false);
+  observer.acceptEngineLine("checkmate nomate");
+  assert.equal(observer.snapshot().mateClaim.status, "ENGINE_REPORT_NO_MATE");
+  assert.equal(observer.snapshot().mateClaim.proofVerified, false);
+});
 
 test("canonical JSON ignores object insertion order and rejects unsafe values", function () {
   assert.equal(canonicalJson({ b: 2, a: 1 }), canonicalJson({ a: 1, b: 2 }));
