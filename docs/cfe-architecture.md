@@ -257,3 +257,26 @@ attacker side. It reports condition inclusion and exact-root equality for
 indexing/eviction heuristics only. Every result has
 `proofTransferAllowed: false`: symbolic proof-preserving generalization is
 not implemented, and a cube relationship never transfers a mate theorem.
+
+
+## Certificate Extractor -> Footprint pipeline
+
+After (and only after) the certificate passes the independent verifier, the
+Extractor computes a structural proof summary and creates a footprint. A
+rules adapter may optionally expose a deterministic
+`deriveFootprintFeatures(position, canonicalRootState)` function together
+with a stable `footprintFeatureAbi`. The callback returns flat scalar feature
+values, which become a conjunction of equality literals (the condition cube).
+If no feature extractor is registered, the Extractor still returns an
+exact-root-only footprint with an empty cube.
+
+The feature ABI identifies the meaning and extraction rules for every literal.
+Abstract lookup is rejected unless the query declares the exact same feature
+ABI. The proof summary records OR/AND/terminal counts, edges, depth and
+branching factors; it is metadata for indexing and Governor heuristics, not an
+additional proof.
+
+**Safety boundary:** a cube match on a different root is always only an
+`ABSTRACT_CANDIDATE`. The certificate must be verified against the actual
+query root, and the current verifier rejects a different root. No proof
+transfer, pruning or result reuse across different root states is implemented.

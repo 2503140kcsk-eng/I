@@ -7,6 +7,7 @@ import {
   matchFootprint,
   compareConditionCubes,
   compareFootprints,
+  summarizeProofDag,
   planTasks,
   verifyCertificate,
   VERIFIER_ABI,
@@ -371,6 +372,15 @@ test("extractor builds and verifies a complete AND/OR mate DAG", async function 
   assert.equal(result.ok, true, result.reason);
   assert.equal(result.verification.code, "VERIFIED_MATE");
   assert.equal(result.verification.nodeCount, 6);
+  assert.equal(result.proofSummary.nodeCount, 6);
+  assert.equal(result.proofSummary.edgeCount, 5);
+  assert.equal(result.proofSummary.orNodeCount, 3);
+  assert.equal(result.proofSummary.andNodeCount, 1);
+  assert.equal(result.proofSummary.terminalMateCount, 2);
+  assert.equal(result.proofSummary.maxDepth, 3);
+  assert.ok(result.footprint);
+  assert.deepEqual(result.footprint.cube, []);
+  assert.equal(result.footprint.featureAbi, null);
 });
 
 test("verifier rejects an omitted defender evasion", async function () {
@@ -423,6 +433,122 @@ test("verifier rejects malformed terminal nodes", async function () {
 });
 
 
+
+test("Extractor derives versioned condition cubes only after certificate verification", async function () {
+  const fixture = makeRules();
+  const rules = {
+    ...fixture.rules,
+    footprintFeatureAbi: "fixture-root-features/1",
+    deriveFootprintFeatures: function (position) {
+      return {
+        phase: "opening",
+        sideToMove: position.turn
+      };
+    }
+  };
+  const result = await extractCertificate(candidateFrom(fixture.states), rules, {
+    expectedRootState: fixture.states.get("root")
+  });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.verification.code, "VERIFIED_MATE");
+  assert.deepEqual(result.footprint.cube, [
+    { key: "phase", value: "opening" },
+    { key: "sideToMove", value: "b" }
+  ]);
+  assert.equal(result.footprint.featureAbi, "fixture-root-features/1");
+  assert.equal(result.footprint.proofSummary.nodeCount, 6);
+
+  const abstract = matchFootprint(result.footprint, {
+    rulesetId: fixture.rules.rulesetId,
+    verifierAbi: fixture.rules.verifierAbi,
+    attackerSide: "b",
+    state: {
+      sfen: "another root position",
+      historyDigest: historyDigest("e"),
+      turn: "b"
+    },
+    featureAbi: "fixture-root-features/1",
+    features: { phase: "opening", sideToMove: "b" }
+  });
+  assert.equal(abstract.decision, "ABSTRACT_CANDIDATE");
+  assert.equal(abstract.canAcceptAsProof, false);
+});
+
+test("abstract footprint matching rejects a different feature ABI", function () {
+  const certificate = {
+    schema: "cfe.shogi.certificate",
+    version: 1,
+    root: "d".repeat(64),
+    rulesetId: "rules-v1",
+    verifierAbi: VERIFIER_ABI,
+    attackerSide: "b",
+    nodes: {
+      ["d".repeat(64)]: {
+        state: { sfen: "root", historyDigest: historyDigest("a"), turn: "b" }
+      }
+    }
+  };
+  const footprint = createFootprint(certificate, { phase: "opening" }, {
+    featureAbi: "features/1"
+  });
+  const result = matchFootprint(footprint, {
+    rulesetId: "rules-v1",
+    verifierAbi: VERIFIER_ABI,
+    attackerSide: "b",
+    state: { sfen: "other", historyDigest: historyDigest("e"), turn: "b" },
+    featureAbi: "features/2",
+    features: { phase: "opening" }
+  });
+  assert.equal(result.decision, "MISS");
+  assert.equal(result.proofTransferAllowed, undefined);
+});
+
+test("footprint comparison rejects differing feature ABIs", function () {
+  const certificate = {
+    schema: "cfe.shogi.certificate",
+    version: 1,
+    root: "e".repeat(64),
+    rulesetId: "rules-v1",
+    verifierAbi: VERIFIER_ABI,
+    attackerSide: "b",
+    nodes: {
+      ["e".repeat(64)]: {
+        state: { sfen: "root", historyDigest: historyDigest("a"), turn: "b" }
+      }
+    }
+  };
+  const v1 = createFootprint(certificate, { phase: "opening" }, { featureAbi: "features/1" });
+  const v2 = createFootprint(certificate, { phase: "opening" }, { featureAbi: "features/2" });
+  const result = compareFootprints(v1, v2);
+  assert.equal(result.compatible, false);
+  assert.equal(result.relation, "INCOMPATIBLE");
+  assert.equal(result.proofTransferAllowed, false);
+});
+
+test("proof summary rejects cycles and unreachable nodes", function () {
+  const cyclic = {
+    schema: "cfe.shogi.certificate",
+    version: 1,
+    root: "root",
+    nodes: {
+      root: { kind: "OR", edges: [{ to: "child" }] },
+      child: { kind: "AND", edges: [{ to: "root" }] }
+    }
+  };
+  assert.throws(function () { summarizeProofDag(cyclic); }, /Cycle/);
+
+  const disconnected = {
+    schema: "cfe.shogi.certificate",
+    version: 1,
+    root: "root",
+    nodes: {
+      root: { kind: "OR", edges: [] },
+      extra: { kind: "TERMINAL_MATE", edges: [] }
+    }
+  };
+  assert.throws(function () { summarizeProofDag(disconnected); }, /unreachable/);
+});
+
 test("condition cube inclusion distinguishes stronger, equivalent and incomparable cubes", function () {
   const broad = { phase: "middlegame" };
   const narrow = { phase: "middlegame", handClass: "rook", turn: "b" };
@@ -459,8 +585,12 @@ test("footprint inclusion is index metadata, never proof transfer", function () 
       }
     }
   };
-  const broad = createFootprint(certificate, { phase: "middlegame" });
-  const narrow = createFootprint(certificate, { phase: "middlegame", handClass: "rook" });
+  const broad = createFootprint(certificate, { phase: "middlegame" }, {
+    featureAbi: "fixture-features/1"
+  });
+  const narrow = createFootprint(certificate, { phase: "middlegame", handClass: "rook" }, {
+    featureAbi: "fixture-features/1"
+  });
   const result = compareFootprints(broad, narrow);
   assert.equal(result.compatible, true);
   assert.equal(result.relation, "RIGHT_STRONGER");
@@ -482,7 +612,9 @@ test("footprints from incompatible verifier ABIs cannot be compared for reuse", 
       }
     }
   };
-  const a = createFootprint(certificate, { phase: 1 });
+  const a = createFootprint(certificate, { phase: 1 }, {
+    featureAbi: "fixture-features/1"
+  });
   const b = { ...a, verifierAbi: "cfe-verifier/2" };
   const result = compareFootprints(a, b);
   assert.equal(result.compatible, false);
@@ -494,12 +626,15 @@ test("exact footprint matches remain candidates and require verification", async
   const fixture = makeRules();
   const result = await extractCertificate(candidateFrom(fixture.states), fixture.rules, { expectedRootState: fixture.states.get("root") });
   assert.equal(result.ok, true);
-  const footprint = createFootprint(result.certificate, { materialClass: "fixture-A", phase: 1 });
+  const footprint = createFootprint(result.certificate, { materialClass: "fixture-A", phase: 1 }, {
+    featureAbi: "fixture-features/1"
+  });
   const exact = matchFootprint(footprint, {
     rulesetId: fixture.rules.rulesetId,
     verifierAbi: fixture.rules.verifierAbi,
     attackerSide: "b",
     state: fixture.states.get("root"),
+    featureAbi: "fixture-features/1",
     features: { materialClass: "fixture-A", phase: 1 }
   });
   assert.equal(exact.decision, "EXACT_CANDIDATE");
@@ -510,12 +645,15 @@ test("exact footprint matches remain candidates and require verification", async
 test("condition-cube hits on a different state are retrieval hints only", async function () {
   const fixture = makeRules();
   const result = await extractCertificate(candidateFrom(fixture.states), fixture.rules, { expectedRootState: fixture.states.get("root") });
-  const footprint = createFootprint(result.certificate, { materialClass: "fixture-A" });
+  const footprint = createFootprint(result.certificate, { materialClass: "fixture-A" }, {
+    featureAbi: "fixture-features/1"
+  });
   const abstract = matchFootprint(footprint, {
     rulesetId: fixture.rules.rulesetId,
     verifierAbi: fixture.rules.verifierAbi,
     attackerSide: "b",
     state: { sfen: "other position", historyDigest: historyDigest("e"), turn: "b" },
+    featureAbi: "fixture-features/1",
     features: { materialClass: "fixture-A" }
   });
   assert.equal(abstract.decision, "ABSTRACT_CANDIDATE");

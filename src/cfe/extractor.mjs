@@ -5,6 +5,7 @@ import {
   computeNodeId,
   verifyCertificate
 } from "./verifier.mjs";
+import { createFootprint, summarizeProofDag } from "./matcher.mjs";
 
 function fail(code, message) {
   const error = new Error(message);
@@ -120,7 +121,45 @@ export async function extractCertificate(candidate, rules, options = {}) {
 
     const verification = await verifyCertificate(certificate, rules, options);
     if (!verification.ok) return { ok: false, code: verification.code, reason: verification.reason };
-    return { ok: true, certificate: certificate, verification: verification };
+
+    const proofSummary = summarizeProofDag(certificate);
+    let footprint = null;
+    let footprintError = null;
+    try {
+      let features = {};
+      let featureAbi = null;
+      if (rules.deriveFootprintFeatures !== undefined) {
+        if (typeof rules.deriveFootprintFeatures !== "function") {
+          throw new TypeError("deriveFootprintFeatures must be a function");
+        }
+        if (typeof rules.footprintFeatureAbi !== "string" ||
+            rules.footprintFeatureAbi.length === 0 ||
+            rules.footprintFeatureAbi.length > 128) {
+          throw new TypeError("A non-empty footprintFeatureAbi is required when deriving features");
+        }
+        const rootState = certificate.nodes[certificate.root].state;
+        const rootPosition = await rules.decodeState(rootState);
+        features = await rules.deriveFootprintFeatures(rootPosition, cloneCanonical(rootState));
+        featureAbi = rules.footprintFeatureAbi;
+      }
+      footprint = createFootprint(certificate, features, {
+        featureAbi: featureAbi,
+        proofSummary: proofSummary
+      });
+    } catch (error) {
+      // Footprint extraction is an optional index operation. It must never
+      // downgrade or invalidate an independently verified certificate.
+      footprintError = error.message || String(error);
+    }
+
+    return {
+      ok: true,
+      certificate: certificate,
+      verification: verification,
+      proofSummary: proofSummary,
+      footprint: footprint,
+      footprintError: footprintError
+    };
   } catch (error) {
     return {
       ok: false,

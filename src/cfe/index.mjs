@@ -21,7 +21,8 @@ export {
   createFootprint,
   matchFootprint,
   compareConditionCubes,
-  compareFootprints
+  compareFootprints,
+  summarizeProofDag
 } from "./matcher.mjs";
 export { planTasks } from "./governor.mjs";
 export { parsePositionCommand, parseGoCommand, UsiProxyObserver } from "./usi-observer.mjs";

@@ -119,4 +119,7 @@ See [LICENSE](LICENSE).
 
 The language-neutral certificate, history-ledger and canonical-hashing rules
 are documented in docs/cfe-certificate-v1.md. Cross-runtime canonicalization
-test vectors are in spec/canonical-v1-vectors.json.
+test vectors are in spec/canonical-v1-vectors.json. After successful
+certificate verification, the Extractor also emits a proof summary and an
+exact-root footprint; adapters can opt into versioned root-feature cubes for
+retrieval only.
