@@ -212,3 +212,15 @@ moves, rather than trusting those summaries.
 - [lishogi](https://github.com/WandererXII/lishogi) and
   [shogiground](https://github.com/WandererXII/shogiground):
   online-play/server and board-UI references respectively, not proof engines.
+
+
+## Proof-state history witness requirement
+
+A digest is a commitment, not evidence that an event sequence is valid. For
+production mode, each proof node must carry the complete history ledger, and
+the verifier recomputes its hash chain and checks that its last SFEN equals the
+node's declared SFEN. The rules adapter must additionally replay every move
+and independently confirm legality, gave-check annotations, repetition and
+perpetual-check adjudication. Synthetic tests can opt into opaque history only
+with the explicit `allowOpaqueHistory: true` test adapter flag; production
+adapters must leave that flag absent.

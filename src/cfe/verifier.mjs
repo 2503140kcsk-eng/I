@@ -1,4 +1,5 @@
 import { canonicalJson, hashCanonical } from "./canonical.mjs";
+import { verifyHistoryLedger } from "./history.mjs";
 
 export const CERTIFICATE_SCHEMA = "cfe.shogi.certificate";
 export const CERTIFICATE_VERSION = 1;
@@ -21,7 +22,7 @@ function isRecord(value) {
     (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
 }
 
-function assertStateEnvelope(state, label) {
+function assertStateEnvelope(state, label, rules) {
   if (!isRecord(state)) reject("INVALID_STATE", label + " must be an object");
   if (typeof state.sfen !== "string" || state.sfen.length === 0) {
     reject("INVALID_STATE", label + ".sfen must be a non-empty string");
@@ -31,6 +32,26 @@ function assertStateEnvelope(state, label) {
   }
   if (!SIDE_VALUES.has(state.turn)) {
     reject("INVALID_STATE", label + ".turn must be the absolute side to move: b or w");
+  }
+}
+
+async function verifyStateHistory(state, rules, label) {
+  if (!state.historyLedger) {
+    if (rules.allowOpaqueHistory === true) return;
+    reject("HISTORY_WITNESS_REQUIRED", label + " has no replayable history ledger");
+  }
+  const checked = await verifyHistoryLedger(state.historyLedger);
+  if (!checked.ok) {
+    reject("INVALID_HISTORY_WITNESS", label + " history ledger failed: " + checked.reason);
+  }
+  if (checked.digest !== state.historyDigest) {
+    reject("HISTORY_COMMITMENT_MISMATCH", label + " history ledger does not match historyDigest");
+  }
+  const finalSfen = state.historyLedger.events.length === 0
+    ? state.historyLedger.initialSfen
+    : state.historyLedger.events[state.historyLedger.events.length - 1].resultingSfen;
+  if (finalSfen !== state.sfen) {
+    reject("HISTORY_FINAL_STATE_MISMATCH", label + " history does not end at the declared SFEN");
   }
 }
 

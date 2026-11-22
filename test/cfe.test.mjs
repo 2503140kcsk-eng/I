@@ -37,6 +37,7 @@ function makeRules() {
   const rules = {
     rulesetId: "test-tsume-v1",
     verifierAbi: VERIFIER_ABI,
+    allowOpaqueHistory: true,
     decodeState: function (envelope) {
       const state = Array.from(states.values()).find(function (value) {
         return canonicalJson(value) === canonicalJson(envelope);
@@ -95,6 +96,39 @@ function candidateFrom(states) {
 }
 
 
+
+
+test("production verifier mode rejects an opaque digest without a history witness", async function () {
+  const fixture = makeRules();
+  const rules = { ...fixture.rules, allowOpaqueHistory: false };
+  const result = await extractCertificate(candidateFrom(fixture.states), rules);
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "HISTORY_WITNESS_REQUIRED");
+});
+
+test("production verifier mode rejects a history ledger with a mismatched root commitment", async function () {
+  const initialSfen = "4k4/9/9/9/9/9/9/9/4K4 b - 1";
+  const ledger = await createHistoryLedger({
+    rulesetId: "test-real-history-v1",
+    initialSfen: initialSfen
+  });
+  const fixture = makeRules();
+  const state = {
+    sfen: initialSfen,
+    turn: "attacker",
+    historyDigest: "0".repeat(64),
+    historyLedger: ledger
+  };
+  const candidate = {
+    rulesetId: fixture.rules.rulesetId,
+    root: "r",
+    nodes: { r: { state, kind: "OR", edges: [] } }
+  };
+  const rules = { ...fixture.rules, allowOpaqueHistory: false };
+  const result = await extractCertificate(candidate, rules);
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "HISTORY_COMMITMENT_MISMATCH");
+});
 
 test("history ledger commits to every move and resulting SFEN", async function () {
   const initialSfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
