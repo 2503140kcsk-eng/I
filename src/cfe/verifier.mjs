@@ -6,7 +6,9 @@ export const NODE_SCHEMA = "cfe.shogi.proof-node";
 export const VERIFIER_ABI = "cfe-verifier/1";
 
 const HASH_RE = /^[0-9a-f]{64}$/;
-const TURN_VALUES = new Set(["attacker", "defender"]);
+const SIDE_VALUES = new Set(["b", "w"]);
+const TERMINAL_STATUSES = new Set(["ongoing", "checkmate", "non-mate-terminal"]);
+const TOP_LEVEL_FIELDS = "attackerSide,nodes,objective,provenance,root,rulesetId,schema,verifierAbi,version";
 
 function reject(code, message) {
   const error = new Error(message);
@@ -25,9 +27,11 @@ function assertStateEnvelope(state, label) {
     reject("INVALID_STATE", label + ".sfen must be a non-empty string");
   }
   if (typeof state.historyDigest !== "string" || !HASH_RE.test(state.historyDigest)) {
-    reject("INVALID_HISTORY_COMMITMENT", label + ".historyDigest must be a lowercase SHA-256 digest");
+    reject("MISSING_HISTORY_CONTEXT", label + ".historyDigest must be a lowercase SHA-256 digest");
   }
-  if (!TURN_VALUES.has(state.turn)) reject("INVALID_STATE", label + ".turn must be attacker or defender");
+  if (!SIDE_VALUES.has(state.turn)) {
+    reject("INVALID_STATE", label + ".turn must be the absolute side to move: b or w");
+  }
 }
 
 function assertMoveList(value, label) {
@@ -38,17 +42,20 @@ function assertMoveList(value, label) {
     }
     return move;
   }).sort();
-  if (new Set(moves).size !== moves.length) reject("INVALID_RULES_ADAPTER", label + " returned duplicate moves");
+  if (new Set(moves).size !== moves.length) {
+    reject("INVALID_RULES_ADAPTER", label + " returned duplicate moves");
+  }
   return moves;
 }
 
 function assertRulesAdapter(rules) {
   const methods = [
     "decodeState", "canonicalState", "sideToMove", "legalCheckingMoves",
-    "legalEvasions", "applyMove", "isCheckmate"
+    "legalEvasions", "applyMove", "terminalStatus"
   ];
   if (!isRecord(rules) || typeof rules.rulesetId !== "string" ||
-      typeof rules.verifierAbi !== "string") {
+      rules.rulesetId.length === 0 || typeof rules.verifierAbi !== "string" ||
+      rules.verifierAbi.length === 0) {
     reject("INVALID_RULES_ADAPTER", "rulesetId and verifierAbi are required");
   }
   for (const method of methods) {
@@ -58,14 +65,22 @@ function assertRulesAdapter(rules) {
   }
 }
 
-export async function computeNodeId(rulesetId, node) {
+function validateLimit(value, label, maximum) {
+  if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
+    reject("INVALID_LIMIT", label + " must be a positive safe integer no greater than " + maximum);
+  }
+  return value;
+}
+
+export async function computeNodeId(rulesetId, attackerSide, node) {
   const edges = node.edges.slice().sort(function (a, b) {
-    return a.move.localeCompare(b.move);
+    return a.move < b.move ? -1 : a.move > b.move ? 1 : 0;
   });
   return hashCanonical({
     schema: NODE_SCHEMA,
     version: 1,
     rulesetId: rulesetId,
+    attackerSide: attackerSide,
     state: node.state,
     kind: node.kind,
     edges: edges
@@ -74,33 +89,49 @@ export async function computeNodeId(rulesetId, node) {
 
 /**
  * Independently checks a finite AND/OR proof DAG for tsume-shogi mate.
- * Attacker nodes are OR nodes over legal checking moves. Defender nodes are
- * AND nodes over every legal evasion. Terminal nodes require independent mate
- * recognition by the rules adapter.
+ *
+ * State.turn is the absolute SFEN side-to-move ("b" or "w"). The certificate
+ * binds attackerSide; node roles are derived from those two values. A caller
+ * MUST supply expectedRootState, so a valid proof for another position cannot
+ * accidentally be accepted as proof for the current search root.
+ *
+ * The rules adapter must replay/validate history and return terminalStatus:
+ * "ongoing", "checkmate", or "non-mate-terminal". Repetition, perpetual-check
+ * adjudication, impasse, and other rule-decided outcomes belong in the last
+ * category and cannot be used as a mate leaf.
  */
 export async function verifyCertificate(certificate, rules, options = {}) {
   try {
     assertRulesAdapter(rules);
-    const maxNodes = options.maxNodes === undefined ? 50000 : options.maxNodes;
-    const maxDepth = options.maxDepth === undefined ? 512 : options.maxDepth;
-    const maxBytes = options.maxBytes === undefined ? 16 * 1024 * 1024 : options.maxBytes;
-    const maxEdges = options.maxEdges === undefined ? 250000 : options.maxEdges;
+    if (!isRecord(options)) reject("INVALID_OPTIONS", "options must be a plain object");
+    if (!Object.hasOwn(options, "expectedRootState") || !isRecord(options.expectedRootState)) {
+      reject("ROOT_BINDING_REQUIRED", "expectedRootState is mandatory for proof acceptance");
+    }
+
+    const maxNodes = validateLimit(options.maxNodes === undefined ? 50000 : options.maxNodes, "maxNodes", 1000000);
+    const maxDepth = validateLimit(options.maxDepth === undefined ? 512 : options.maxDepth, "maxDepth", 1024);
+    const maxBytes = validateLimit(options.maxBytes === undefined ? 16 * 1024 * 1024 : options.maxBytes, "maxBytes", 64 * 1024 * 1024);
+    const maxEdges = validateLimit(options.maxEdges === undefined ? 250000 : options.maxEdges, "maxEdges", 4000000);
 
     const serialized = canonicalJson(certificate);
     if (new TextEncoder().encode(serialized).byteLength > maxBytes) {
       reject("CERTIFICATE_TOO_LARGE", "Certificate exceeds the byte limit");
     }
     if (!isRecord(certificate) ||
+        Object.keys(certificate).sort().join(",") !== TOP_LEVEL_FIELDS ||
         certificate.schema !== CERTIFICATE_SCHEMA ||
         certificate.version !== CERTIFICATE_VERSION ||
         certificate.objective !== "tsume-mate") {
-      reject("UNSUPPORTED_CERTIFICATE", "Unsupported certificate schema, version, or objective");
+      reject("UNSUPPORTED_CERTIFICATE", "Unsupported certificate schema, version, objective, or top-level fields");
     }
     if (certificate.rulesetId !== rules.rulesetId) {
       reject("RULESET_MISMATCH", "Certificate and verifier ruleset IDs differ");
     }
     if (certificate.verifierAbi !== rules.verifierAbi) {
       reject("VERIFIER_ABI_MISMATCH", "Certificate requires a different verifier ABI");
+    }
+    if (!SIDE_VALUES.has(certificate.attackerSide)) {
+      reject("INVALID_ATTACKER_SIDE", "attackerSide must be b or w");
     }
     if (!HASH_RE.test(certificate.root)) reject("INVALID_ROOT", "Root must be a lowercase SHA-256 digest");
     if (!isRecord(certificate.nodes)) reject("INVALID_NODE_TABLE", "nodes must be an object keyed by node digest");
@@ -119,16 +150,16 @@ export async function verifyCertificate(certificate, rules, options = {}) {
     let visitedCount = 0;
     let edgeCount = 0;
 
-    const decodeState = async function (node, id) {
-      assertStateEnvelope(node.state, "node " + id + " state");
-      const position = await rules.decodeState(node.state);
+    const decodeState = async function (state, label) {
+      assertStateEnvelope(state, label);
+      const position = await rules.decodeState(state);
       const canonical = await rules.canonicalState(position);
-      if (canonicalJson(canonical) !== canonicalJson(node.state)) {
-        reject("NON_CANONICAL_STATE", "Node " + id + " is not in canonical state form");
+      if (canonicalJson(canonical) !== canonicalJson(state)) {
+        reject("NON_CANONICAL_STATE", label + " is not in canonical state form");
       }
       const side = await rules.sideToMove(position);
-      if (side !== node.state.turn || !TURN_VALUES.has(side)) {
-        reject("TURN_MISMATCH", "Node " + id + " turn does not match the rules adapter");
+      if (side !== state.turn || !SIDE_VALUES.has(side)) {
+        reject("TURN_MISMATCH", label + " side-to-move does not match the rules adapter");
       }
       return position;
     };
@@ -161,22 +192,28 @@ export async function verifyCertificate(certificate, rules, options = {}) {
         previousMove = edge.move;
       }
 
-      if (await computeNodeId(certificate.rulesetId, node) !== id) {
+      if (await computeNodeId(certificate.rulesetId, certificate.attackerSide, node) !== id) {
         reject("NODE_HASH_MISMATCH", "Node " + id + " content hash is invalid");
       }
 
       active.add(id);
       visitedCount += 1;
-      const position = await decodeState(node, id);
-      const turn = node.state.turn;
-      const checkmate = Boolean(await rules.isCheckmate(position));
+      const position = await decodeState(node.state, "node " + id + " state");
+      const side = node.state.turn;
+      const role = side === certificate.attackerSide ? "attacker" : "defender";
+      const terminal = await rules.terminalStatus(position);
+      if (!TERMINAL_STATUSES.has(terminal)) {
+        reject("INVALID_RULES_ADAPTER", "terminalStatus must return ongoing, checkmate, or non-mate-terminal");
+      }
 
       if (node.kind === "TERMINAL_MATE") {
-        if (turn !== "defender" || !checkmate || node.edges.length !== 0) {
+        if (role !== "defender" || terminal !== "checkmate" || node.edges.length !== 0) {
           reject("INVALID_TERMINAL", "Node " + id + " is not a terminal defender checkmate");
         }
       } else if (node.kind === "OR") {
-        if (turn !== "attacker" || checkmate) reject("INVALID_OR_NODE", "Node " + id + " is not a live attacker node");
+        if (role !== "attacker" || terminal !== "ongoing") {
+          reject("INVALID_OR_NODE", "Node " + id + " is not an ongoing attacker node");
+        }
         if (node.edges.length === 0) reject("EMPTY_OR_NODE", "Node " + id + " has no proving move");
         const legal = assertMoveList(await rules.legalCheckingMoves(position), "legalCheckingMoves");
         for (const edge of node.edges) {
@@ -185,9 +222,13 @@ export async function verifyCertificate(certificate, rules, options = {}) {
           }
         }
       } else if (node.kind === "AND") {
-        if (turn !== "defender" || checkmate) reject("INVALID_AND_NODE", "Node " + id + " is not a live defender node");
+        if (role !== "defender" || terminal !== "ongoing") {
+          reject("INVALID_AND_NODE", "Node " + id + " is not an ongoing defender node");
+        }
         const legal = assertMoveList(await rules.legalEvasions(position), "legalEvasions");
-        if (legal.length === 0) reject("UNCLASSIFIED_TERMINAL", "Node " + id + " has no legal evasion but is not terminal mate");
+        if (legal.length === 0) {
+          reject("UNCLASSIFIED_TERMINAL", "Node " + id + " has no legal evasion but is not terminal");
+        }
         const certified = node.edges.map(function (edge) { return edge.move; });
         if (canonicalJson(legal) !== canonicalJson(certified)) {
           reject("INCOMPLETE_DEFENDER_COVERAGE", "Node " + id + " does not cover every legal defender evasion");
@@ -212,15 +253,16 @@ export async function verifyCertificate(certificate, rules, options = {}) {
     };
 
     const root = certificate.nodes[certificate.root];
+    if (!root || !isRecord(root)) reject("MISSING_ROOT", "Root node is absent or malformed");
     assertStateEnvelope(root.state, "root state");
-    if (root.state.turn !== "attacker") reject("ROOT_TURN_INVALID", "A tsume-mate proof must start with the attacker to move");
+    if (root.state.turn !== certificate.attackerSide) {
+      reject("ROOT_TURN_INVALID", "The attacker must be the side to move at the tsume root");
+    }
 
-    if (options.expectedRootState) {
-      const expectedPosition = await rules.decodeState(options.expectedRootState);
-      const expected = await rules.canonicalState(expectedPosition);
-      if (canonicalJson(expected) !== canonicalJson(root.state)) {
-        reject("ROOT_STATE_MISMATCH", "Certificate root does not match the requested position and history");
-      }
+    const expectedPosition = await decodeState(options.expectedRootState, "expected root state");
+    const expected = await rules.canonicalState(expectedPosition);
+    if (canonicalJson(expected) !== canonicalJson(root.state)) {
+      reject("ROOT_STATE_MISMATCH", "Certificate root does not match the requested position and history");
     }
 
     await visit(certificate.root, 0);
@@ -232,6 +274,7 @@ export async function verifyCertificate(certificate, rules, options = {}) {
       code: "VERIFIED_MATE",
       root: certificate.root,
       nodeCount: visitedCount,
+      attackerSide: certificate.attackerSide,
       rulesetId: certificate.rulesetId,
       verifierAbi: certificate.verifierAbi
     };
