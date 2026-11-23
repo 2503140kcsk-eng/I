@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://2503140kcsk-eng.github.io/I/schemas/footprint-v1.schema.json",
+  "title": "CFE shogi condition-cube footprint v1",
+  "description": "A conjunction of partial state equalities used only to nominate proof candidates. A cube hit is not proof reuse; the proof tree must be replay-verified on the target state.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "key_version", "conditions"],
+  "properties": {
+    "schema": { "const": "cfe.shogi.footprint.v1" },
+    "key_version": { "const": "CFE-SHOGI-STATE-V1" },
+    "source_state_key": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "conditions": { "$ref": "#/$defs/conditions" }
+  },
+  "$defs": {
+    "piece": {
+      "type": "string",
+      "pattern": "^(?:\\+[PLNSBRplnsbr]|[PLNSGBRKplnsgbrk])$"
+    },
+    "handCounts": {
+      "type": "object",
+      "patternProperties": {
+        "^[RBGSNLP]$": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "conditions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "side": { "enum": ["b", "w"] },
+        "board": {
+          "type": "object",
+          "patternProperties": {
+            "^[1-9][a-i]$": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/piece" }] }
+          },
+          "additionalProperties": false
+        },
+        "hands": {
+          "type": "object",
+          "properties": {
+            "b": { "$ref": "#/$defs/handCounts" },
+            "w": { "$ref": "#/$defs/handCounts" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}
