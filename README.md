@@ -129,9 +129,8 @@ configure that separately according to the build in use.
 
 ## CI and free-use policy
 
-- `core.yml` runs the dependency-free tests and CLI smoke check.
-- `cross-engine.yml` runs cshogi and shogi-rs corpus comparisons in separate
-  standard Ubuntu runner jobs on pushes and pull requests.
+- `core.yml` runs the dependency-free tests, CLI smoke check, then the
+  cshogi and shogi-rs corpus checks on a standard Ubuntu runner.
 - YaneuraOu remains an explicit local process check because the engine binary
   and any required evaluation data are deployment-specific.
 
