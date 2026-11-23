@@ -78,15 +78,21 @@ class CertificateVerifierTests(unittest.TestCase):
                 }],
             },
         }
-        with self.assertRaisesRegex(CertificateVerificationError, "complete legal-move-set"):
+        with self.assertRaisesRegex(CertificateVerificationError, "complete legal-move set"):
             verify_mate_certificate(cert, START)
 
     def test_attacker_must_choose_exactly_one_proof_move(self):
         root = parse_sfen(ROOT)
         cert = one_move_mate_certificate()
-        child = cert["root"]["children"][0]
-        cert["root"]["children"].append(child)
-        with self.assertRaisesRegex(CertificateVerificationError, "duplicate child move"):
+        second_move = legal_moves(root)[0]
+        first_move = cert["root"]["children"][0]["move"]
+        if second_move == first_move:
+            second_move = legal_moves(root)[1]
+        cert["root"]["children"].append({
+            "move": second_move,
+            "node": cert["root"]["children"][0]["node"],
+        })
+        with self.assertRaisesRegex(CertificateVerificationError, "exactly one move"):
             verify_mate_certificate(cert, ROOT)
 
     def test_verification_resource_limits_are_enforced(self):
