@@ -1,0 +1,25 @@
+{
+  "schema": "cfe.shogi.mate-certificate.v1",
+  "attacker": "b",
+  "root": {
+    "identity": {
+      "key_version": "CFE-SHOGI-STATE-V1",
+      "canonical_state": "4k4/9/2NGKGN2/9/9/9/9/9/9 b -",
+      "state_key": "30f1e6bfc3777271c3da11848f7b56eb8ea9a08e5b4adcdec5f2294d877aae2f"
+    },
+    "children": [
+      {
+        "move": "4c5b",
+        "node": {
+          "identity": {
+            "key_version": "CFE-SHOGI-STATE-V1",
+            "canonical_state": "4k4/4G4/2NGK1N2/9/9/9/9/9/9 w -",
+            "state_key": "fd5f6852d50595d9e974b28e391725c5dad1c6fe5e9fd1c494c48acf44c4f108"
+          },
+          "terminal": "checkmate",
+          "children": []
+        }
+      }
+    ]
+  }
+}
