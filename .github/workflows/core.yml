@@ -36,3 +36,11 @@ jobs:
         run: make -C /tmp/YaneuraOu/source COMPILER=g++ TARGET_CPU=OTHER YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL normal -j2
       - name: Compare shared SFEN corpus with YaneuraOu USI
         run: python tools/conformance.py --engine yaneuraou --engine-path /tmp/YaneuraOu/source/YaneuraOu-by-gcc
+      - name: Generate deterministic reachable-position corpus
+        run: python tools/generate_random_corpus.py --games 6 --plies 96 --sample-every 8 --seed 20261123 --output /tmp/cfe-random-sfen-v1.jsonl
+      - name: Compare reachable positions with cshogi
+        run: python tools/conformance.py --engine cshogi --corpus /tmp/cfe-random-sfen-v1.jsonl
+      - name: Compare reachable positions with shogi-rs
+        run: python tools/conformance.py --engine shogi-rs --corpus /tmp/cfe-random-sfen-v1.jsonl
+      - name: Compare reachable positions with YaneuraOu USI
+        run: python tools/conformance.py --engine yaneuraou --engine-path /tmp/YaneuraOu/source/YaneuraOu-by-gcc --corpus /tmp/cfe-random-sfen-v1.jsonl
