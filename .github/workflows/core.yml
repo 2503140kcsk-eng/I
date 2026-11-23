@@ -21,6 +21,6 @@ jobs:
       - name: CLI smoke test
         run: python cfe_shogi.py --sfen 'lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1' --canonical --key --moves
       - name: Install isolated cshogi oracle
-        run: python -m pip install --disable-pip-version-check --only-binary=:all: --require-hashes -r requirements/cshogi-conformance.txt
+        run: "python -m pip install --disable-pip-version-check --only-binary=:all: --require-hashes -r requirements/cshogi-conformance.txt"
       - name: Compare shared SFEN corpus with cshogi
         run: python tools/conformance.py --engine cshogi
