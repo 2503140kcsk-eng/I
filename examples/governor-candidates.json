@@ -1,0 +1,26 @@
+[
+  {
+    "id": "proof-reuse-a",
+    "reuse_probability": 0.9,
+    "expected_saved_nodes": 1000000,
+    "verification_nodes": 10000,
+    "estimated_ms": 50,
+    "memory_bytes": 1048576
+  },
+  {
+    "id": "proof-reuse-b",
+    "reuse_probability": 0.65,
+    "expected_saved_nodes": 500000,
+    "verification_nodes": 5000,
+    "estimated_ms": 40,
+    "memory_bytes": 524288
+  },
+  {
+    "id": "proof-reuse-low-value",
+    "reuse_probability": 0.01,
+    "expected_saved_nodes": 100,
+    "verification_nodes": 1000,
+    "estimated_ms": 10,
+    "memory_bytes": 65536
+  }
+]
