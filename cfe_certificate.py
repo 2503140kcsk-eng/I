@@ -23,6 +23,7 @@ from cfe_shogi import (
 )
 
 SCHEMA = "cfe.shogi.mate-certificate.v1"
+RAW_PROOF_SCHEMA = "cfe.shogi.raw-mate-proof.v1"
 
 
 class CertificateVerificationError(ValueError):
@@ -194,6 +195,86 @@ def verify_mate_certificate(
         "max_mate_plies": max_plies,
         "history_policy": "reject-repeated-position-per-branch",
     }
+
+
+def extract_mate_certificate(
+    proof_tree: Any,
+    root_sfen: str,
+    *,
+    max_nodes: int = 100_000,
+    max_depth: int = 512,
+) -> dict[str, Any]:
+    """Attach replay-derived identities to a raw AND/OR proof tree.
+
+    The input tree contains only attacker/defender moves and terminal labels.
+    Identities are never accepted from the search process: every node position
+    is reconstructed from the trusted root and its legal-move path. The
+    resulting certificate is then passed through the independent verifier
+    before being returned.
+    """
+    _require(isinstance(proof_tree, dict), "proof tree must be an object", "$")
+    _require(set(proof_tree) == {"schema", "attacker", "root"},
+             "proof tree must contain exactly schema, attacker, and root", "$")
+    _require(proof_tree["schema"] == RAW_PROOF_SCHEMA,
+             f"schema must be {RAW_PROOF_SCHEMA}", "$.schema")
+    attacker = proof_tree["attacker"]
+    _require(attacker in ("b", "w"), "attacker must be 'b' or 'w'", "$.attacker")
+    _require(isinstance(max_nodes, int) and not isinstance(max_nodes, bool) and max_nodes >= 1,
+             "max_nodes must be a positive integer", "$limits")
+    _require(isinstance(max_depth, int) and not isinstance(max_depth, bool) and max_depth >= 0,
+             "max_depth must be a non-negative integer", "$limits")
+
+    root_position = parse_sfen(root_sfen)
+    budget = [0]
+
+    def decorate(raw_node: Any, position, path: str, depth: int) -> dict[str, Any]:
+        _require(isinstance(raw_node, dict), "proof node must be an object", path)
+        _require(set(raw_node).issubset({"children", "terminal"}),
+                 "proof node contains unknown fields", path)
+        _require("children" in raw_node, "children is required", path)
+        _require(depth <= max_depth, f"proof depth exceeds limit {max_depth}", path)
+        budget[0] += 1
+        _require(budget[0] <= max_nodes, f"proof node count exceeds limit {max_nodes}", path)
+
+        raw_children = raw_node["children"]
+        _require(isinstance(raw_children, list), "children must be an array", path + ".children")
+        result: dict[str, Any] = {
+            "identity": state_identity(position),
+            "children": [],
+        }
+        if "terminal" in raw_node:
+            result["terminal"] = raw_node["terminal"]
+
+        for index, child in enumerate(raw_children):
+            child_path = f"{path}.children[{index}]"
+            _require(isinstance(child, dict), "child must be an object", child_path)
+            _require(set(child) == {"move", "node"},
+                     "child must contain exactly move and node", child_path)
+            move_text = child["move"]
+            _require(isinstance(move_text, str), "move must be a string", child_path + ".move")
+            try:
+                move = parse_move(move_text)
+            except ValueError as exc:
+                raise CertificateVerificationError(
+                    f"{child_path}: invalid USI move {move_text!r}: {exc}"
+                ) from exc
+            _require(is_legal_move(position, move), f"illegal proof edge: {move_text}", child_path)
+            next_position = _apply_unchecked(position, move)
+            result["children"].append({
+                "move": move_text,
+                "node": decorate(child["node"], next_position, child_path + ".node", depth + 1),
+            })
+        return result
+
+    certificate = {
+        "schema": SCHEMA,
+        "attacker": attacker,
+        "root": decorate(proof_tree["root"], root_position, "$.root", 0),
+    }
+    verify_mate_certificate(
+        certificate, root_sfen, max_nodes=max_nodes, max_depth=max_depth
+    )
+    return certificate
 
 
 def canonical_certificate(certificate: dict[str, Any]) -> str:
