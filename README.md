@@ -79,31 +79,39 @@ canonical state is retained and compared as well.
 
 ## Independent forced-mate certificate verification
 
-The proof verifier is independent from YaneuraOu, cshogi, and shogi-rs. It
-receives the root SFEN from the caller (not from the certificate), then
-replays every certificate move through the legality core.
+The certificate extractor and verifier are independent from
+YaneuraOu, cshogi, and shogi-rs. The extractor accepts an engine-neutral raw
+AND/OR proof tree, replays every edge from the caller-supplied root SFEN, and
+attaches canonical position identities itself; it does not trust hashes
+supplied by the search process. It then invokes the independent verifier
+before emitting a certificate.
 
 At an attacker-to-move node, exactly one legal move is required (OR proof).
 At a defender-to-move node, the child move list must equal the complete sorted
 legal-move set (AND proof). A terminal leaf is accepted only if the defender is
-in check and has no legal move. Every node includes exact canonical state and
-versioned SHA-256 identity. Repeated states on a branch are rejected so v1
-does not silently assume repetition adjudication away.
+in check and has no legal move. Every certified node includes exact canonical
+state and versioned SHA-256 identity. Repeated states on a branch are rejected
+so v1 does not silently assume repetition adjudication away.
 
-Verify the checked-in one-ply example:
+Extract and verify the checked-in one-ply example:
 
 ```sh
+python tools/extract_certificate.py \
+  --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' \
+  --proof-tree examples/mate-in-1.proof.json \
+  --output /tmp/mate.certificate.json
 python tools/verify_certificate.py \
   --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' \
-  --certificate examples/mate-in-1.certificate.json
+  --certificate /tmp/mate.certificate.json
 ```
 
-The verifier enforces node-count and depth limits. Certificate v1 is a finite
-standard-shogi checkmate proof tree; it does not yet cover repetition,
-perpetual-check adjudication, entering-king declarations, clocks, variants,
-or DAG node sharing. It is not a generic proof for every engine score or
-evaluation claim. The structure is specified in
-`schemas/mate-certificate-v1.schema.json`.
+The extractor and verifier enforce node-count and depth limits. Certificate
+v1 is a finite standard-shogi checkmate proof tree; it does not yet cover
+repetition, perpetual-check adjudication, entering-king declarations, clocks,
+variants, or DAG node sharing. It is not a generic proof for every engine
+score or evaluation claim. The certified structure is specified in
+`schemas/mate-certificate-v1.schema.json`; the raw input structure is
+`schemas/raw-mate-proof-v1.schema.json`.
 
 ## Shared cross-engine corpus
 
@@ -205,9 +213,11 @@ runners or paid external services. See GitHub's current
 `cfe_shogi.py` is the independent rule and identity boundary. Its versioned
 position envelope provides the shared state input to the next CFE layers:
 
-- **Certificate Extractor:** still to implement; convert a search/DFPN proof
-  tree into the canonical AND/OR certificate format and minimize redundant
-  branches without weakening defender coverage.
+- **Certificate Extractor:** implemented for raw AND/OR proof trees.
+  It replays edges, attaches identities derived from states, and only emits a
+  certificate after the independent verifier accepts the result. Automatic
+  conversion from each engine's native DFPN/search format and proof
+  minimization remain to implement.
 - **Footprint Matcher:** still to implement; exact canonical-state matching is
   available now, while sound condition-cube matching and inclusion proofs
   remain a separate research task.
