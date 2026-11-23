@@ -77,6 +77,15 @@ class FootprintTests(unittest.TestCase):
         self.assertFalse(result["reusable"])
         self.assertEqual("proof_replay_failed", result["reason"])
 
+    def test_footprint_provenance_must_match_certificate_root(self):
+        cert = mate_certificate()
+        cube = extract_footprint(cert, ROOT)
+        cube["source_state_key"] = "0" * 64
+        result = try_reuse_certificate(cert, cube, ROOT)
+        self.assertFalse(result["candidate_match"])
+        self.assertFalse(result["reusable"])
+        self.assertEqual("source_provenance_mismatch", result["reason"])
+
     def test_empty_partial_cube_matches_any_valid_standard_position(self):
         cert = mate_certificate()
         cube = extract_footprint(
