@@ -39,6 +39,10 @@ jobs:
         run: "python -m pip install --disable-pip-version-check --only-binary=:all: --require-hashes -r requirements/cshogi-conformance.txt"
       - name: Compare shared SFEN corpus with cshogi
         run: python tools/conformance.py --engine cshogi
+      - name: Extract a mate proof with isolated cshogi DF-PN and verify in CFE
+        run: |
+          python tools/extract_cshogi_certificate.py --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' --output /tmp/cshogi-mate.certificate.json --max-search-nodes 200000 --max-tree-nodes 1000 --max-depth 32 --timeout-seconds 60
+          python tools/verify_certificate.py --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' --certificate /tmp/cshogi-mate.certificate.json
       - name: Install Rust compiler and Cargo
         run: sudo apt-get update && sudo apt-get install -y cargo
       - name: Compare shared SFEN corpus with shogi-rs
