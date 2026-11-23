@@ -128,11 +128,18 @@ def main() -> int:
     ap.add_argument("--sfen", help="check one SFEN; omit to check the shared corpus")
     ap.add_argument("--timeout", type=float, default=45.0)
     ap.add_argument("--limit", type=int, default=0, help="0 means all corpus cases")
+    ap.add_argument("--corpus", type=Path, default=ROOT / "corpus/sfen-v1.jsonl")
     ns = ap.parse_args()
+    if ns.limit < 0:
+        ap.error("--limit cannot be negative")
     if ns.sfen:
         rows = [{"id": "single", "sfen": ns.sfen}]
     else:
-        rows = [json.loads(line) for line in (ROOT / "corpus/sfen-v1.jsonl").read_text().splitlines() if line.strip()]
+        if not ns.corpus.is_file():
+            ap.error(f"corpus file does not exist: {ns.corpus}")
+        rows = [json.loads(line) for line in ns.corpus.read_text(encoding="utf-8").splitlines() if line.strip()]
+        if not rows:
+            ap.error(f"corpus is empty: {ns.corpus}")
         if ns.limit:
             rows = rows[:ns.limit]
     failures = 0
