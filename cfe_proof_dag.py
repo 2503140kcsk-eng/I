@@ -182,7 +182,10 @@ def verify_mate_certificate_dag(
         visited_ids.add(identifier)
         node = nodes[identifier]
         try:
-            recorded_identity = _validate_identity_record(node["identity"], path + ".identity")
+            try:
+                recorded_identity = _validate_identity_record(node["identity"], path + ".identity")
+            except CertificateVerificationError as exc:
+                raise ProofDagError(f"{path}.identity: {exc}") from exc
             expected_identity = state_identity(current)
             if recorded_identity != expected_identity:
                 if identity_policy == "strict":
