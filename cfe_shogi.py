@@ -359,7 +359,7 @@ def is_square_attacked(pos: Position, target: int, by: str) -> bool:
 def in_check(pos: Position, owner: str) -> bool:
     kings = [i for i, p in enumerate(pos.board) if p == Piece(owner, "K")]
     if len(kings) != 1:
-        raise ShogiError(f"cannot test check: expected one {owner} king, found {len(kings)}\")
+        raise ShogiError(f"cannot test check: expected one {owner} king, found {len(kings)}")
     return is_square_attacked(pos, kings[0], "w" if owner == "b" else "b")
 
 
