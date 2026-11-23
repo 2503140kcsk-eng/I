@@ -50,6 +50,14 @@ class CertificateVerifierTests(unittest.TestCase):
         self.assertEqual(1, result["max_mate_plies"])
         self.assertEqual("b", result["attacker"])
 
+    def test_checked_in_example_certificate_verifies(self):
+        from pathlib import Path
+        example = Path(__file__).resolve().parents[1] / "examples/mate-in-1.certificate.json"
+        cert = json.loads(example.read_text(encoding="utf-8"))
+        result = verify_mate_certificate(cert, ROOT)
+        self.assertTrue(result["valid"])
+        self.assertEqual(1, result["max_mate_plies"])
+
     def test_rejects_certificate_for_a_different_root(self):
         with self.assertRaisesRegex(CertificateVerificationError, "identity"):
             verify_mate_certificate(one_move_mate_certificate(), START)
