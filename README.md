@@ -113,6 +113,35 @@ score or evaluation claim. The certified structure is specified in
 `schemas/mate-certificate-v1.schema.json`; the raw input structure is
 `schemas/raw-mate-proof-v1.schema.json`.
 
+## Condition-cube footprints and safe proof reuse
+
+A footprint is a conjunction of partial equalities over the board, side to
+move, and hand counts. The default extractor emits all fields; callers can
+omit irrelevant squares or hand counters to create a broader candidate filter.
+Cube implication is ordered explicitly: a stronger (narrower) cube implies a
+weaker (broader) cube when it contains every equality of the weaker cube.
+
+```sh
+python tools/extract_footprint.py \
+  --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' \
+  --certificate examples/mate-in-1.certificate.json \
+  --board-squares 5a 5b 4c 6c 5c 3c 7c \
+  --output /tmp/mate.footprint.json
+
+python tools/match_footprint.py \
+  --target-sfen '4k4/9/2NGKGN2/9/9/9/9/9/8P b - 1' \
+  --certificate examples/mate-in-1.certificate.json \
+  --footprint /tmp/mate.footprint.json
+```
+
+A footprint hit is only a candidate. The matcher replays the whole proof tree
+against the target SFEN using the verifier's replay policy. It recomputes all
+legal defender replies and all terminal checkmates. Stored node identities
+must be internally consistent, but may differ from the target replay state.
+Therefore an over-broad cube can cause extra verification work, but cannot by
+itself make an invalid proof reusable. Schema:
+`schemas/footprint-v1.schema.json`.
+
 ## Shared cross-engine corpus
 
 The corpus is `corpus/sfen-v1.jsonl`. It currently includes the initial
@@ -218,9 +247,10 @@ position envelope provides the shared state input to the next CFE layers:
   certificate after the independent verifier accepts the result. Automatic
   conversion from each engine's native DFPN/search format and proof
   minimization remain to implement.
-- **Footprint Matcher:** still to implement; exact canonical-state matching is
-  available now, while sound condition-cube matching and inclusion proofs
-  remain a separate research task.
+- **Footprint Matcher:** implemented as partial-equality condition cubes,
+  implication/subsumption checks, and proof-gated candidate reuse. A cube hit
+  is never accepted alone; every candidate proof is replay-verified on the
+  target position. Indexed lookup and cache optimization remain future work.
 - **Certificate Verifier:** implemented for finite forced-checkmate trees.
   It replays every edge through the independent legality core, checks exact
   node identities, requires one attacker move and every defender legal reply,
