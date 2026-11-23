@@ -28,3 +28,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y cargo
       - name: Compare shared SFEN corpus with shogi-rs
         run: python tools/conformance.py --engine shogi-rs
+      - name: Fetch pinned YaneuraOu GPL-3.0 source outside the CFE repository
+        run: |
+          git clone --filter=blob:none https://github.com/yaneurao/YaneuraOu.git /tmp/YaneuraOu
+          git -C /tmp/YaneuraOu checkout 1a74e5196e1a72f5e7b815826dc34001b07aa7e2
+      - name: Build YaneuraOu material edition for protocol conformance
+        run: make -C /tmp/YaneuraOu/source COMPILER=g++ TARGET_CPU=OTHER YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL normal -j2
+      - name: Compare shared SFEN corpus with YaneuraOu USI
+        run: python tools/conformance.py --engine yaneuraou --engine-path /tmp/YaneuraOu/source/YaneuraOu-by-gcc
