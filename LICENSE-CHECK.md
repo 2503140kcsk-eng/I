@@ -23,13 +23,17 @@ before third parties may assume they can copy, modify, or redistribute it.
 
 ## CI conformance evidence
 
-The public GitHub Actions run builds the pinned YaneuraOu Material edition in
-a temporary runner directory. The 12 SFEN corpus positions were successfully
-checked against cshogi 1.1.1 and the pinned shogi-rs crate with exact sorted
-legal-move-set equality, canonical state equality, and CFE key equality.
-YaneuraOu's USI adapter checked canonical state, CFE key, and depth-1 perft
-count for the same 12 positions; it does not expose the exact legal-move set
-through this adapter.
+The public GitHub Actions workflow builds the pinned YaneuraOu Material
+edition in a temporary runner directory. The checked-in 12-position edge-case
+corpus and an additional deterministic corpus of 73 unique reachable
+positions (six seeded random legal playouts, each sampled every eight plies
+through at most 96 plies) were run against all three implementations.
+
+Across all 85 positions, cshogi 1.1.1 and the pinned shogi-rs crate matched the
+exact sorted legal-move set, canonical state, and CFE key with zero failures.
+YaneuraOu's USI adapter matched canonical state, CFE key, and depth-1 perft
+count on all 85 positions; it does not expose the exact legal-move set through
+this adapter.
 
 ## Separation and redistribution warning
 
