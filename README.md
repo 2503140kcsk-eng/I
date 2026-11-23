@@ -134,13 +134,14 @@ python tools/match_footprint.py \
   --footprint /tmp/mate.footprint.json
 ```
 
-A footprint hit is only a candidate. The matcher replays the whole proof tree
-against the target SFEN using the verifier's replay policy. It recomputes all
-legal defender replies and all terminal checkmates. Stored node identities
-must be internally consistent, but may differ from the target replay state.
-Therefore an over-broad cube can cause extra verification work, but cannot by
-itself make an invalid proof reusable. Schema:
-`schemas/footprint-v1.schema.json`.
+A footprint hit is only a candidate. The matcher first binds the
+footprint's source key to the certificate's internally consistent root
+identity, then replays the whole proof tree against the target SFEN using the
+verifier's replay policy. It recomputes all legal defender replies and all
+terminal checkmates. Stored node identities must be internally consistent,
+but may differ from the target replay state. Therefore an over-broad cube can
+cause extra verification work, but cannot by itself make an invalid proof
+reusable. Schema: `schemas/footprint-v1.schema.json`.
 
 ## Governor: measurement-driven verification scheduling
 
