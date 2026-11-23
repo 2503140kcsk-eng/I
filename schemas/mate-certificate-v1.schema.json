@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://2503140kcsk-eng.github.io/I/schemas/mate-certificate-v1.schema.json",
+  "title": "CFE finite forced-mate certificate v1",
+  "description": "A replayable AND/OR proof tree for forced checkmate in standard 9x9 shogi. The verifier additionally enforces turn-dependent completeness and terminal checkmate semantics.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "attacker", "root"],
+  "properties": {
+    "schema": { "const": "cfe.shogi.mate-certificate.v1" },
+    "attacker": { "enum": ["b", "w"] },
+    "root": { "$ref": "#/$defs/node" }
+  },
+  "$defs": {
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key_version", "canonical_state", "state_key"],
+      "properties": {
+        "key_version": { "const": "CFE-SHOGI-STATE-V1" },
+        "canonical_state": { "type": "string" },
+        "state_key": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "move": {
+      "type": "string",
+      "pattern": "^(?:[1-9][a-i][1-9][a-i]\\+?|[PLNSGBR]\\*[1-9][a-i])$"
+    },
+    "child": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["move", "node"],
+      "properties": {
+        "move": { "$ref": "#/$defs/move" },
+        "node": { "$ref": "#/$defs/node" }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "children"],
+      "properties": {
+        "identity": { "$ref": "#/$defs/identity" },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/child" } },
+        "terminal": { "const": "checkmate" }
+      }
+    }
+  }
+}
