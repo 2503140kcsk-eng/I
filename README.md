@@ -105,13 +105,44 @@ python tools/verify_certificate.py \
   --certificate /tmp/mate.certificate.json
 ```
 
-The extractor and verifier enforce node-count and depth limits. Certificate
-v1 is a finite standard-shogi checkmate proof tree; it does not yet cover
-repetition, perpetual-check adjudication, entering-king declarations, clocks,
-variants, or DAG node sharing. It is not a generic proof for every engine
-score or evaluation claim. The certified structure is specified in
-`schemas/mate-certificate-v1.schema.json`; the raw input structure is
+The extractor and verifier enforce node-count and depth limits. Tree
+certificate v1 is a finite standard-shogi checkmate proof tree. It does not
+cover repetition, perpetual-check adjudication, entering-king declarations,
+clocks, or variants. It is not a generic proof for every engine score or
+evaluation claim. A separate content-addressed DAG representation is
+available below when proof-subtree sharing is useful. The tree structure is
+specified in `schemas/mate-certificate-v1.schema.json`; raw input is
 `schemas/raw-mate-proof-v1.schema.json`.
+
+## Content-addressed mate proof DAG
+
+Tree certificates are easy to inspect, but repeated identical proof subtrees
+can be stored once and referenced from multiple parents. The DAG packer first
+strictly verifies the source tree, then interns identical node payloads under
+content-derived identifiers:
+
+`node_id = "n" + SHA256(canonical_json(node_payload))`
+
+```sh
+python tools/pack_certificate_dag.py \
+  --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' \
+  --certificate examples/mate-in-1.certificate.json \
+  --output /tmp/mate.proof-dag.json
+
+python tools/verify_certificate_dag.py \
+  --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' \
+  --dag /tmp/mate.proof-dag.json
+```
+
+The independent DAG verifier checks content hashes, edge targets, reachability,
+cycles, per-path repeated positions, legal attacker moves, complete defender
+responses, and actual checkmate leaves. A shared node is **replayed for every
+incoming path**; it is not accepted from a cached success because path history
+can affect validity. Only byte-identical proof-node payloads are merged, so
+this format enables sharing but does not guarantee compression for every
+position. The tree and DAG forms have separate versioned schemas:
+`schemas/mate-certificate-v1.schema.json` and
+`schemas/mate-dag-certificate-v1.schema.json`.
 
 ## cshogi DF-PN proof production
 
@@ -144,10 +175,12 @@ certificate. The CI runs this bridge on the checked-in mate-in-one example.
 This is an initial integration, not an export of cshogi's internal proof-number
 table: each attacker subproblem is searched separately and its first PV move
 is retained, while the CFE bridge expands all defender replies. Search limits
-or an unproven branch produce no certificate. ProofPieces export, native
-DFPN table/DAG sharing, dominance relations, and efficient transposition-table
-reconstruction remain future integrations. License isolation does not waive
-the GPL-3.0 obligations if cshogi itself is redistributed.
+or an unproven branch produce no certificate. The CFE content-addressed DAG
+format is implemented separately, but exporting cshogi's internal
+ProofPieces/proof-number table, preserving its native DFPN transposition
+table, dominance relations, and efficient table reconstruction remain future
+integrations. License isolation does not waive the GPL-3.0 obligations if
+cshogi itself is redistributed.
 
 ## Condition-cube footprints and safe proof reuse
 
@@ -318,20 +351,21 @@ position envelope provides the shared state input to the next CFE layers:
   implication/subsumption checks, and proof-gated candidate reuse. A cube hit
   is never accepted alone; every candidate proof is replay-verified on the
   target position. Indexed lookup and cache optimization remain future work.
-- **Certificate Verifier:** implemented for finite forced-checkmate trees.
-  It replays every edge through the independent legality core, checks exact
-  node identities, requires one attacker move and every defender legal reply,
-  and accepts leaves only at checkmate.
+- **Certificate Verifier:** implemented for finite forced-checkmate trees
+  and content-addressed proof DAGs. It replays every edge through the
+  independent legality core, checks node identities, requires one attacker
+  move and every defender legal reply, and accepts leaves only at checkmate.
+  DAG sharing never bypasses per-path replay.
 - **Governor:** implemented as a deterministic budget allocator for
   proof-reuse checks, using caller-supplied reuse probability and expected
   search nodes saved minus verifier nodes. Greedy ranking is an explicit
   baseline; calibration and device-specific profiling remain future work.
 
 YaneuraOu remains the main general search engine. cshogi has an initial
-isolated DF-PN-to-certificate producer; ProofPieces/DAG/dominance extraction,
-dlshogi self-play/training, and mShogi Rust DF-PN comparison remain separate
-future integrations. No upstream search-engine source is copied into this
-legality core.
+isolated DF-PN-to-certificate producer; native ProofPieces/proof-table export,
+DFPN dominance extraction, dlshogi self-play/training, and mShogi Rust DF-PN
+comparison remain separate future integrations. No upstream search-engine
+source is copied into this legality core.
 
 ## License status
 
