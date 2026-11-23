@@ -106,7 +106,7 @@ class ProofDagTests(unittest.TestCase):
         dag = pack_mate_certificate_dag(mate_certificate(), ROOT)
         with self.assertRaisesRegex(ProofDagError, "depth exceeds"):
             verify_mate_certificate_dag(dag, ROOT, max_depth=0)
-        with self.assertRaisesRegex(ProofDagError, "node visits exceed"):
+        with self.assertRaisesRegex(ProofDagError, "DAG node count exceeds"):
             verify_mate_certificate_dag(dag, ROOT, max_nodes=1)
 
 
