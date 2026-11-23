@@ -1,0 +1,16 @@
+{
+  "name": "cfe-sfen",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Strict, dependency-free SFEN parsing and canonical shogi position identity for CFE.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": "./src/sfen.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}
