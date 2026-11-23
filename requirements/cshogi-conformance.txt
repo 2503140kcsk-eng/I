@@ -1,0 +1,4 @@
+# cshogi is GPL-3.0 and is installed only for the isolated optional probe.
+# Hash pinned to the CPython 3.11 manylinux x86_64 wheel published on PyPI.
+cshogi==1.1.1 \
+    --hash=sha256:91d32849f41b2979fdafae093578489a3615a7b06bd3fbf3ad4a2691629f5f19

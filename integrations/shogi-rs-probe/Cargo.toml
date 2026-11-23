@@ -1,0 +1,8 @@
+[package]
+name = "cfe-shogi-rs-probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+shogi = { git = "https://github.com/nozaq/shogi-rs", rev = "59677e96d4f6cc44411ff2ac0e84f88238c75be4" }

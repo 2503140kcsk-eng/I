@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://2503140kcsk-eng.github.io/I/schemas/position-envelope-v1.schema.json",
+  "title": "CFE Shogi Position Envelope v1",
+  "description": "A normalized standard-shogi position snapshot. This is not a proof of history reachability or a search proof certificate.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "canonical_sfen", "identity", "legal_moves"],
+  "properties": {
+    "schema": {"const": "cfe.shogi.position.v1"},
+    "canonical_sfen": {
+      "type": "string",
+      "description": "Canonical four-field standard-shogi SFEN; includes the move number."
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "key_version", "canonical_state", "digest"],
+      "properties": {
+        "algorithm": {"const": "sha-256"},
+        "key_version": {"const": "CFE-SHOGI-STATE-V1"},
+        "canonical_state": {
+          "type": "string",
+          "description": "Canonical board, side-to-move and hands; intentionally excludes the move number."
+        },
+        "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "legal_moves": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(?:[1-9][a-i][1-9][a-i]\\+?|[PLNSGBR]\\*[1-9][a-i])$"
+      }
+    }
+  }
+}
