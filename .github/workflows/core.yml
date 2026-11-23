@@ -25,6 +25,10 @@ jobs:
         run: python cfe_shogi.py --sfen 'lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1' --canonical --key --moves
       - name: Independent certificate verifier smoke test
         run: python tools/verify_certificate.py --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' --certificate examples/mate-in-1.certificate.json
+      - name: Pack and independently verify content-addressed proof DAG
+        run: |
+          python tools/pack_certificate_dag.py --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' --certificate examples/mate-in-1.certificate.json --output /tmp/mate.proof-dag.json
+          python tools/verify_certificate_dag.py --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' --dag /tmp/mate.proof-dag.json
       - name: Extract and verify raw proof-tree certificate
         run: |
           python tools/extract_certificate.py --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' --proof-tree examples/mate-in-1.proof.json --output /tmp/mate.certificate.json
