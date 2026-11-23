@@ -49,8 +49,9 @@ fn main() {
                 let mut candidate = Position::new();
                 candidate.set_sfen(&sfen).expect("same validated SFEN");
                 let action = Move::Normal { from, to, promote };
+                let usi = action.to_string();
                 if candidate.make_move(action).is_ok() {
-                    moves.push(action.to_string());
+                    moves.push(usi);
                 }
             }
         }
@@ -65,8 +66,9 @@ fn main() {
             let mut candidate = Position::new();
             candidate.set_sfen(&sfen).expect("same validated SFEN");
             let action = Move::Drop { to, piece_type: kind };
+            let usi = action.to_string();
             if candidate.make_move(action).is_ok() {
-                moves.push(action.to_string());
+                moves.push(usi);
             }
         }
     }
