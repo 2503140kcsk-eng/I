@@ -113,6 +113,42 @@ score or evaluation claim. The certified structure is specified in
 `schemas/mate-certificate-v1.schema.json`; the raw input structure is
 `schemas/raw-mate-proof-v1.schema.json`.
 
+## cshogi DF-PN proof production
+
+cshogi's public `DfPn.search()` and `get_pv()` API is used as an isolated
+GPL-3.0 search oracle. The probe takes the DF-PN principal attacking move at
+each attacker node, then explicitly enumerates **every** legal defender reply
+and starts a bounded DF-PN search on each resulting attacker node. It thus
+reconstructs a full AND/OR proof tree from a PV-oriented API rather than
+mistaking one PV for a complete proof.
+
+```sh
+python tools/extract_cshogi_certificate.py \
+  --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' \
+  --output /tmp/cshogi-mate.certificate.json \
+  --max-search-nodes 200000 \
+  --max-tree-nodes 1000 \
+  --max-depth 32 \
+  --timeout-seconds 60
+
+python tools/verify_certificate.py \
+  --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' \
+  --certificate /tmp/cshogi-mate.certificate.json
+```
+
+`tools/cshogi_dfpn_probe.py` is the only file importing cshogi, and it runs
+as a child process. The parent consumes plain JSON, derives fresh CFE node
+identities, and independently verifies the complete proof before writing the
+certificate. The CI runs this bridge on the checked-in mate-in-one example.
+
+This is an initial integration, not an export of cshogi's internal proof-number
+table: each attacker subproblem is searched separately and its first PV move
+is retained, while the CFE bridge expands all defender replies. Search limits
+or an unproven branch produce no certificate. ProofPieces export, native
+DFPN table/DAG sharing, dominance relations, and efficient transposition-table
+reconstruction remain future integrations. License isolation does not waive
+the GPL-3.0 obligations if cshogi itself is redistributed.
+
 ## Condition-cube footprints and safe proof reuse
 
 A footprint is a conjunction of partial equalities over the board, side to
@@ -291,9 +327,11 @@ position envelope provides the shared state input to the next CFE layers:
   search nodes saved minus verifier nodes. Greedy ranking is an explicit
   baseline; calibration and device-specific profiling remain future work.
 
-YaneuraOu remains the main search engine. cshogi DFPN/proof-piece work,
-dlshogi self-play/training, and mShogi research remain separate services or
-future integrations; none of their source is copied into this legality core.
+YaneuraOu remains the main general search engine. cshogi has an initial
+isolated DF-PN-to-certificate producer; ProofPieces/DAG/dominance extraction,
+dlshogi self-play/training, and mShogi Rust DF-PN comparison remain separate
+future integrations. No upstream search-engine source is copied into this
+legality core.
 
 ## License status
 
