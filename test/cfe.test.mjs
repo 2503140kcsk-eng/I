@@ -105,6 +105,44 @@ function candidateFrom(states) {
 
 
 
+
+test("allowOpaqueHistory never skips replay when a ledger is actually supplied", async function () {
+  const initialSfen = "4k4/9/9/9/9/9/9/9/4K4 b - 1";
+  const ledger = await createHistoryLedger({
+    rulesetId: "test-tsume-v1",
+    initialSfen: initialSfen
+  });
+  const state = {
+    sfen: initialSfen,
+    turn: "b",
+    historyDigest: ledger.digest,
+    historyLedger: ledger
+  };
+  const rules = {
+    rulesetId: "test-tsume-v1",
+    verifierAbi: VERIFIER_ABI,
+    allowOpaqueHistory: true,
+    decodeState: function (envelope) { return { ...envelope }; },
+    canonicalState: function (position) { return { ...position }; },
+    sideToMove: function (position) { return position.turn; },
+    legalCheckingMoves: function () { return []; },
+    legalEvasions: function () { return []; },
+    applyMove: function () { throw new Error("not reached"); },
+    terminalStatus: function () { return "ongoing"; },
+    replayHistory: async function () {
+      throw new Error("fabricated history must not be accepted");
+    }
+  };
+  const result = await extractCertificate({
+    rulesetId: "test-tsume-v1",
+    attackerSide: "b",
+    root: "r",
+    nodes: { r: { state: state, kind: "OR", edges: [] } }
+  }, rules, { expectedRootState: state });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "HISTORY_REPLAY_FAILED");
+});
+
 test("production verifier mode rejects an opaque digest without a history witness", async function () {
   const fixture = makeRules();
   const rules = {

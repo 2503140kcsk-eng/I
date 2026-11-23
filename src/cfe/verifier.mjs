@@ -60,17 +60,21 @@ async function verifyStateHistory(state, rules, label) {
   if (state.turn !== expectedTurn) {
     reject("HISTORY_TURN_MISMATCH", label + " history side-to-move differs from the declared turn");
   }
-  if (rules.allowOpaqueHistory !== true) {
-    let replayed;
-    try {
-      replayed = await rules.replayHistory(state.historyLedger);
-    } catch (error) {
-      reject("HISTORY_REPLAY_FAILED", label + " history replay failed: " + (error.message || String(error)));
-    }
-    const replayedState = await rules.canonicalState(replayed);
-    if (canonicalJson(replayedState) !== canonicalJson(state)) {
-      reject("HISTORY_REPLAY_MISMATCH", label + " replayed history does not reproduce the complete canonical state");
-    }
+  // allowOpaqueHistory only permits synthetic test states with NO ledger.
+  // Once a witness is supplied, it must always be replayed, even in a test
+  // adapter; otherwise a valid hash chain could be mistaken for legal history.
+  if (typeof rules.replayHistory !== "function") {
+    reject("HISTORY_REPLAY_REQUIRED", label + " supplied a history ledger but the rules adapter cannot replay it");
+  }
+  let replayed;
+  try {
+    replayed = await rules.replayHistory(state.historyLedger);
+  } catch (error) {
+    reject("HISTORY_REPLAY_FAILED", label + " history replay failed: " + (error.message || String(error)));
+  }
+  const replayedState = await rules.canonicalState(replayed);
+  if (canonicalJson(replayedState) !== canonicalJson(state)) {
+    reject("HISTORY_REPLAY_MISMATCH", label + " replayed history does not reproduce the complete canonical state");
   }
 }
 

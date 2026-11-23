@@ -48,7 +48,8 @@ The top-level object has exactly these keys:
 A production proof state contains canonical SFEN, absolute turn (b or w),
 historyDigest, and the complete replayable historyLedger. Synthetic tests may
 use opaque history only when the adapter explicitly opts into
-allowOpaqueHistory: true; production builds must never do this.
+allowOpaqueHistory: true and no ledger is supplied; this flag never suppresses
+replay of an actual ledger. Production builds must never use opaque history.
 
 A proof node has exactly state, kind, and edges. An edge has exactly move and
 to.
