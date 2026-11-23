@@ -129,14 +129,32 @@ count, **not** the exact move set; cshogi and shogi-rs provide exact legal-move
 set checks. The pinned Material build avoids needing a separate NNUE evaluation
 file for this protocol test.
 
+### Deterministic reachable-position differential corpus
+
+The CI also generates positions from six seeded legal random playouts:
+
+```sh
+python tools/generate_random_corpus.py --games 6 --plies 96 --sample-every 8 --seed 20261123 --output /tmp/cfe-random-sfen-v1.jsonl
+python tools/conformance.py --engine cshogi --corpus /tmp/cfe-random-sfen-v1.jsonl
+python tools/conformance.py --engine shogi-rs --corpus /tmp/cfe-random-sfen-v1.jsonl
+python tools/conformance.py --engine yaneuraou --engine-path /path/to/YaneuraOu --corpus /tmp/cfe-random-sfen-v1.jsonl
+```
+
+The checked-in edge-case corpus has 12 positions. The fixed-seed playout
+generator produced 73 additional unique reachable positions (six games, up to
+96 plies each, sampled every eight plies; duplicate canonical states removed).
+This tests a broad selection of ordinary game states in addition to hand-built
+rule boundaries.
+
 ## CI and free-use policy
 
 - `core.yml` runs the 24 dependency-free core tests, compile and CLI checks,
-  then the shared corpus against cshogi, shogi-rs, and a pinned YaneuraOu build
-  on a standard Ubuntu runner.
-- On the checked-in 12-position corpus, cshogi and shogi-rs match the exact
-  legal-move set, canonical state, and CFE key; YaneuraOu matches the canonical
-  state, CFE key, and perft-1 move count.
+  then both the 12-position edge corpus and the 73-position reachable corpus
+  against cshogi, shogi-rs, and a pinned YaneuraOu Material build on a standard
+  Ubuntu runner.
+- Across 85 positions per engine, cshogi and shogi-rs match the exact legal
+  move set, canonical state, and CFE key. YaneuraOu matches canonical state,
+  CFE key, and perft-1 move count on all 85.
 
 The repository is public. GitHub documents that standard GitHub-hosted runner
 usage for public repositories is free; this workflow does not request larger
