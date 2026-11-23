@@ -1,0 +1,15 @@
+{
+  "schema": "cfe.shogi.raw-mate-proof.v1",
+  "attacker": "b",
+  "root": {
+    "children": [
+      {
+        "move": "4c5b",
+        "node": {
+          "terminal": "checkmate",
+          "children": []
+        }
+      }
+    ]
+  }
+}
