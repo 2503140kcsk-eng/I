@@ -215,8 +215,11 @@ The export must include, for every proof node:
 - the cshogi hand-bound / ProofPieces vector;
 - every exported move edge and its child label.
 
-Every imported node must report `pn = 0` and `dn > 0`, but this is only a
-solver-side consistency filter. The independent CFE verifier regenerates
+Every imported node must report `pn = 0` and `dn > 0`, and must not carry
+the source-level `REPEAT = UINT_MAX - 1` marker in `num_searched`. cshogi
+uses that marker for path-/horizon-dependent outcomes, including repetition
+classes and max-depth results. A `pn = 0` entry with this marker is not
+accepted as a finite mate proof. These are still only solver-side filters. The independent CFE verifier regenerates
 legal checking moves, **all** legal defender evasions, successor states and
 terminal mate. A missing defender branch is rejected even if the DFPN root
 reported `pn = 0`.
@@ -237,12 +240,15 @@ search counter. Its lookup contains two distinct directions:
 - solved disproof entry: stored disproof-piece bound must be equal or superior
   to the requested hand.
 
-`compareCshogiProofPieces` reproduces these componentwise comparisons and
-labels successful results as `DOMINATES`. Its output is always a retrieval
-candidate with `proofTransferAllowed: false`; it is not used to accept a mate
-certificate. In particular, board identity, history interaction, rule profile
-and full move legality remain separate conditions that this local hand
-comparison does not establish.
+`compareCshogiHandDominance` reproduces only the seven-component hand
+partial order implemented by `Hand::isEqualOrSuperior`; the old
+`compareCshogiProofPieces` name remains as a backward-compatible alias.
+It is not a full TT-reuse predicate. The upstream lookup additionally scopes
+entries by the board-key bucket, uses an exact hand+depth path, filters
+cross-hand solved-entry reuse through `num_searched != REPEAT`, and clears the
+table on `NewSearch()`. The hand relation alone does not include those guards.
+Its output remains a retrieval candidate with `proofTransferAllowed: false`;
+it cannot accept a mate certificate.
 
 ### Revision audited
 
@@ -262,3 +268,26 @@ values for profiling and Governor experiments only. `pn = 0` becomes
 `ENGINE_REPORTED_PROVEN`, not `VERIFIED_MATE`; only Certificate Verifier
 can issue the latter. Malformed or duplicate fields are counted and ignored,
 without interrupting USI forwarding.
+
+
+#### Additional exact source details
+
+At the audited commit, `TTEntry::hand` is commented as "hand (always first
+player's hand)" in `dfpn.h`. The solver chooses the attacker-side hand when
+constructing the table key; in solved states the same storage is reused for
+proof-piece or disproof-piece requirements. `Hand::isEqualOrSuperior` is
+explicitly defined as every piece-class count being at least the reference
+count. It uses packed 32-bit subtraction and a borrow-bit mask; CFE uses
+decoded seven-counter comparisons to implement the same partial order without
+copying the upstream bit trick.
+
+The solved proof/disproof branches in `LookUpDirect` also require
+`num_searched != REPEAT`. In contrast, exact `hand == entry.hand` AND
+`depth == entry.depth` matches are handled first. The table is an
+`unordered_map<Key, Cluster>` keyed by board key, and `NewSearch()` clears
+the map. Thus CFE's seven-counter comparator is not an upstream-compatible
+replacement for the entire lookup algorithm.
+
+Pinned source:
+- [Hand partial order and setPP](https://github.com/TadaoYamaoka/cshogi/blob/26889135717af0a08def9663bb73f1abe5263c66/src/hand.hpp)
+- [TT lookup, REPEAT and DFPN propagation](https://github.com/TadaoYamaoka/cshogi/blob/26889135717af0a08def9663bb73f1abe5263c66/src/dfpn.cpp)

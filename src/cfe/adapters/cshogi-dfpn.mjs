@@ -3,6 +3,9 @@ import { cloneCanonical } from "../canonical.mjs";
 export const CSHOGI_DFPN_EXPORT_SCHEMA = "cfe.cshogi.dfpn-export";
 export const CSHOGI_DFPN_EXPORT_VERSION = 1;
 export const CSHOGI_AUDITED_COMMIT = "26889135717af0a08def9663bb73f1abe5263c66";
+// Upstream dfpn.cpp: REPEAT = UINT_MAX - 1. This marks path/history- or
+// horizon-dependent results and is never admissible as a finite proof node.
+export const CSHOGI_REPEAT_SENTINEL = 4294967294;
 
 const HAND_KEYS = ["P", "L", "N", "S", "G", "B", "R"];
 const HAND_MAX = {
@@ -62,7 +65,7 @@ function equalHands(left, right) {
  * For a disproved entry (dn === 0), cshogi reuses it when the stored
  * disproof-piece bound is equal or superior to the requested hand.
  */
-export function compareCshogiProofPieces({ boundKind, stored, requested }) {
+export function compareCshogiHandDominance({ boundKind, stored, requested }) {
   if (!["proof", "disproof"].includes(boundKind)) {
     throw new TypeError("boundKind must be proof or disproof");
   }
@@ -154,6 +157,12 @@ export function importCshogiDfpnExport(source) {
       if (raw.pn !== 0 || raw.dn === 0) {
         fail("UNPROVEN_CSHOGI_NODE", "node " + label + " is not recorded as a solved proof node (pn=0, dn>0)");
       }
+      if (raw.numSearched === CSHOGI_REPEAT_SENTINEL) {
+        fail(
+          "PATH_DEPENDENT_CSHOGI_NODE",
+          "node " + label + " carries cshogi's REPEAT sentinel and cannot support a finite mate certificate"
+        );
+      }
       if (!Array.isArray(raw.edges)) {
         fail("INVALID_CSHOGI_NODE", "node " + label + " edges must be an array");
       }
@@ -218,3 +227,9 @@ export function importCshogiDfpnExport(source) {
     };
   }
 }
+
+
+// Backward-compatible name retained for existing experiments. The function
+// compares only the seven-component hand partial order; it is not a complete
+// transposition-table reuse predicate.
+export const compareCshogiProofPieces = compareCshogiHandDominance;

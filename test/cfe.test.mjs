@@ -17,6 +17,8 @@ import {
   historyPositionKey,
   importCshogiDfpnExport,
   compareCshogiProofPieces,
+  compareCshogiHandDominance,
+  CSHOGI_REPEAT_SENTINEL,
   CSHOGI_DFPN_EXPORT_SCHEMA,
   CSHOGI_DFPN_EXPORT_VERSION
 } from "../src/cfe/index.mjs";
@@ -713,12 +715,22 @@ test("cshogi DFPN import rejects a non-zero proof number and an incomplete node 
   // legal defender evasions using its own move generator.
 });
 
-test("cshogi proof-piece dominance compares proof and disproof bounds in opposite directions", function () {
+test("cshogi DFPN importer rejects the REPEAT sentinel even when pn is zero", function () {
+  const fixture = makeRules();
+  const source = makeCshogiDfpnExport(fixture.states);
+  assert.equal(CSHOGI_REPEAT_SENTINEL, 4294967294);
+  source.nodes.r.numSearched = CSHOGI_REPEAT_SENTINEL;
+  const rejected = importCshogiDfpnExport(source);
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.code, "PATH_DEPENDENT_CSHOGI_NODE");
+});
+
+test("cshogi hand partial order compares proof and disproof bounds in opposite directions", function () {
   const stored = { P: 1, L: 0, N: 0, S: 0, G: 0, B: 0, R: 1 };
   const strongerAttacker = { P: 2, L: 0, N: 0, S: 0, G: 0, B: 0, R: 1 };
   const lessDefenderResource = { P: 0, L: 0, N: 0, S: 0, G: 0, B: 0, R: 1 };
 
-  const proof = compareCshogiProofPieces({
+  const proof = compareCshogiHandDominance({
     boundKind: "proof",
     stored: stored,
     requested: strongerAttacker
@@ -727,7 +739,7 @@ test("cshogi proof-piece dominance compares proof and disproof bounds in opposit
   assert.equal(proof.reuseCandidate, true);
   assert.equal(proof.proofTransferAllowed, false);
 
-  const disproof = compareCshogiProofPieces({
+  const disproof = compareCshogiHandDominance({
     boundKind: "disproof",
     stored: stored,
     requested: lessDefenderResource
@@ -737,14 +749,14 @@ test("cshogi proof-piece dominance compares proof and disproof bounds in opposit
   assert.equal(disproof.requiresIndependentVerification, true);
 });
 
-test("cshogi proof-piece dominance rejects incomparable bounds and impossible hand counts", function () {
+test("cshogi hand dominance rejects incomparable bounds and impossible hand counts", function () {
   const a = { P: 1, L: 0, N: 0, S: 0, G: 0, B: 0, R: 0 };
   const b = { P: 0, L: 0, N: 1, S: 0, G: 0, B: 0, R: 0 };
-  assert.equal(compareCshogiProofPieces({
+  assert.equal(compareCshogiHandDominance({
     boundKind: "proof", stored: a, requested: b
   }).relation, "INCOMPARABLE");
   assert.throws(function () {
-    compareCshogiProofPieces({
+    compareCshogiHandDominance({
       boundKind: "proof",
       stored: { ...a, P: 19 },
       requested: a

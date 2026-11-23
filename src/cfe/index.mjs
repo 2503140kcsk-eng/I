@@ -31,6 +31,8 @@ export {
   CSHOGI_DFPN_EXPORT_SCHEMA,
   CSHOGI_DFPN_EXPORT_VERSION,
   CSHOGI_AUDITED_COMMIT,
+  CSHOGI_REPEAT_SENTINEL,
   importCshogiDfpnExport,
+  compareCshogiHandDominance,
   compareCshogiProofPieces
 } from "./adapters/cshogi-dfpn.mjs";
