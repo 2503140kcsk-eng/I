@@ -12,7 +12,8 @@ before third parties may assume they can copy, modify, or redistribute it.
 
 | Project | License evidence | Use in this change |
 |---|---|---|
-| `yaneurao/YaneuraOu` | Upstream `LICENSE` file begins GNU GPL, Version 3 | CI-only temporary clone of pinned commit `1a74e5196e1a72f5e7b815826dc34001b07aa7e2`, built as the evaluation-file-free Material edition under `/tmp`; queried through a separate USI process. No upstream source or binary is committed, vendored, or redistributed by this change. The probe compares `d` SFEN output, CFE key, and `go perft 1` count. |
+| `yaneurao/YaneuraOu` | Upstream `LICENSE` file begins GNU GPL, Version 3 | CI-only temporary clone of pinned commit `1a74e5196e1a72f5e7b815826dc34001b07aa7e2`, built as the evaluation-file-free Material edition under `/tmp`; queried through a separate USI process. No upstream source or binary is committed, vendored, or redistributed by this change. The probe compares `d` SFEN output, CFE key, the exact move set parsed from
+`go perft 1` root divide output, and its total count. |
 | `TadaoYamaoka/cshogi` | Upstream `LICENSE` file begins GNU GPL, Version 3 | Optional isolated Python probe process, test-only. No cshogi code is imported in the CFE comparator/core process. Pinned PyPI version `1.1.1`; the CPython 3.11 manylinux x86-64 wheel SHA-256 is `91d32849f41b2979fdafae093578489a3615a7b06bd3fbf3ad4a2691629f5f19`. |
 | `nozaq/shogi-rs` | Upstream `LICENSE` is MIT License | Rust conformance helper uses the public crate API; Git dependency pinned to commit `59677e96d4f6cc44411ff2ac0e84f88238c75be4`. No upstream source copied. Preserve MIT notice for the dependency if distributing. |
 | `TadaoYamaoka/DeepLearningShogi` | Upstream `LICENSE` file begins GNU GPL, Version 3 | Not linked or imported in this phase. Training/self-play is a future, separately audited service. |
@@ -31,9 +32,9 @@ through at most 96 plies) were run against all three implementations.
 
 Across all 85 positions, cshogi 1.1.1 and the pinned shogi-rs crate matched the
 exact sorted legal-move set, canonical state, and CFE key with zero failures.
-YaneuraOu's USI adapter matched canonical state, CFE key, and depth-1 perft
-count on all 85 positions; it does not expose the exact legal-move set through
-this adapter.
+YaneuraOu's USI adapter matched canonical state, CFE key, exact sorted legal
+move set (parsed from root-level perft divide lines), and depth-1 perft total
+on all 85 positions.
 
 ## Separation and redistribution warning
 
