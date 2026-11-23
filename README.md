@@ -142,6 +142,36 @@ Therefore an over-broad cube can cause extra verification work, but cannot by
 itself make an invalid proof reusable. Schema:
 `schemas/footprint-v1.schema.json`.
 
+## Governor: measurement-driven verification scheduling
+
+The Governor ranks proof-reuse verification candidates under hard node, time,
+memory, and job-count budgets. It computes:
+
+`expected_net_saved_nodes = reuse_probability * expected_saved_nodes - verification_nodes`
+
+Only candidates with positive expected net savings are eligible. The current
+policy is a deterministic greedy heuristic ordered by expected net savings
+per estimated millisecond, with stable tie-breaking. It is **not** claimed to
+be a globally optimal multi-dimensional knapsack solution.
+
+The reuse probability and cost fields are caller-supplied estimates or
+measurements. The Governor does not invent them; they should eventually be
+calibrated from observed certificate replay outcomes and engine search costs.
+Unused budget is returned to the main YaneuraOu search.
+
+```sh
+python tools/govern.py \
+  --candidates examples/governor-candidates.json \
+  --max-verification-nodes 20000 \
+  --max-time-ms 100 \
+  --max-memory-bytes 2000000 \
+  --max-jobs 2
+```
+
+Input contract: `schemas/governor-candidates-v1.schema.json`. The policy is
+intended as an auditable baseline; production tuning requires collecting
+real search-vs-verification cost data on the target device.
+
 ## Shared cross-engine corpus
 
 The corpus is `corpus/sfen-v1.jsonl`. It currently includes the initial
@@ -255,8 +285,10 @@ position envelope provides the shared state input to the next CFE layers:
   It replays every edge through the independent legality core, checks exact
   node identities, requires one attacker move and every defender legal reply,
   and accepts leaves only at checkmate.
-- **Governor:** still to implement; resource allocation and reuse economics
-  must be driven by measured verification cost and expected proof reuse.
+- **Governor:** implemented as a deterministic budget allocator for
+  proof-reuse checks, using caller-supplied reuse probability and expected
+  search nodes saved minus verifier nodes. Greedy ranking is an explicit
+  baseline; calibration and device-specific profiling remain future work.
 
 YaneuraOu remains the main search engine. cshogi DFPN/proof-piece work,
 dlshogi self-play/training, and mShogi research remain separate services or
