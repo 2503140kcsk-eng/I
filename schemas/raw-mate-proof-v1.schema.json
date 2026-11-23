@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://2503140kcsk-eng.github.io/I/schemas/raw-mate-proof-v1.schema.json",
+  "title": "CFE raw forced-mate proof tree v1",
+  "description": "Engine-neutral AND/OR move tree before CFE identities are attached. Runtime extraction additionally checks legal edges, full defender coverage and actual checkmate leaves.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "attacker", "root"],
+  "properties": {
+    "schema": { "const": "cfe.shogi.raw-mate-proof.v1" },
+    "attacker": { "enum": ["b", "w"] },
+    "root": { "$ref": "#/$defs/node" }
+  },
+  "$defs": {
+    "move": {
+      "type": "string",
+      "pattern": "^(?:[1-9][a-i][1-9][a-i]\\+?|[PLNSGBR]\\*[1-9][a-i])$"
+    },
+    "child": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["move", "node"],
+      "properties": {
+        "move": { "$ref": "#/$defs/move" },
+        "node": { "$ref": "#/$defs/node" }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["children"],
+      "properties": {
+        "children": { "type": "array", "items": { "$ref": "#/$defs/child" } },
+        "terminal": { "const": "checkmate" }
+      }
+    }
+  }
+}

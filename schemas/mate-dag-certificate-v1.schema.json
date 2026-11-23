@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://2503140kcsk-eng.github.io/I/schemas/mate-dag-certificate-v1.schema.json",
+  "title": "CFE content-addressed mate proof DAG v1",
+  "description": "A finite standard-shogi mate AND/OR proof graph. The verifier must replay shared nodes for each incoming path and independently enforce all defender moves and checkmate leaves.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "attacker", "root", "nodes"],
+  "properties": {
+    "schema": { "const": "cfe.shogi.mate-dag-certificate.v1" },
+    "attacker": { "enum": ["b", "w"] },
+    "root": { "type": "string", "pattern": "^n[0-9a-f]{64}$" },
+    "nodes": {
+      "type": "object",
+      "minProperties": 1,
+      "patternProperties": {
+        "^n[0-9a-f]{64}$": { "$ref": "#/$defs/node" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key_version", "canonical_state", "state_key"],
+      "properties": {
+        "key_version": { "const": "CFE-SHOGI-STATE-V1" },
+        "canonical_state": { "type": "string" },
+        "state_key": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["move", "target"],
+      "properties": {
+        "move": { "type": "string", "pattern": "^(?:[1-9][a-i][1-9][a-i]\\+?|[PLNSGBR]\\*[1-9][a-i])$" },
+        "target": { "type": "string", "pattern": "^n[0-9a-f]{64}$" }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "children"],
+      "properties": {
+        "identity": { "$ref": "#/$defs/identity" },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/edge" } },
+        "terminal": { "const": "checkmate" }
+      }
+    }
+  }
+}

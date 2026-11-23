@@ -1,0 +1,69 @@
+name: CFE shogi core
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: cfe-shogi-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Compile check
+        run: python -m compileall -q cfe_shogi.py tools tests
+      - name: CLI smoke test
+        run: python cfe_shogi.py --sfen 'lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1' --canonical --key --moves
+      - name: Independent certificate verifier smoke test
+        run: python tools/verify_certificate.py --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' --certificate examples/mate-in-1.certificate.json
+      - name: Pack and independently verify content-addressed proof DAG
+        run: |
+          python tools/pack_certificate_dag.py --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' --certificate examples/mate-in-1.certificate.json --output /tmp/mate.proof-dag.json
+          python tools/verify_certificate_dag.py --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' --dag /tmp/mate.proof-dag.json
+      - name: Extract and verify raw proof-tree certificate
+        run: |
+          python tools/extract_certificate.py --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' --proof-tree examples/mate-in-1.proof.json --output /tmp/mate.certificate.json
+          python tools/verify_certificate.py --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' --certificate /tmp/mate.certificate.json
+      - name: Extract and replay a broader condition-cube footprint
+        run: |
+          python tools/extract_footprint.py --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' --certificate examples/mate-in-1.certificate.json --board-squares 5a 5b 4c 6c 5c 3c 7c --output /tmp/mate.footprint.json
+          python tools/match_footprint.py --target-sfen '4k4/9/2NGKGN2/9/9/9/9/9/8P b - 1' --certificate examples/mate-in-1.certificate.json --footprint /tmp/mate.footprint.json
+      - name: Run deterministic Governor allocation smoke test
+        run: python tools/govern.py --candidates examples/governor-candidates.json --max-verification-nodes 20000 --max-time-ms 100 --max-memory-bytes 2000000 --max-jobs 2
+      - name: Install isolated cshogi oracle
+        run: "python -m pip install --disable-pip-version-check --only-binary=:all: --require-hashes -r requirements/cshogi-conformance.txt"
+      - name: Compare shared SFEN corpus with cshogi
+        run: python tools/conformance.py --engine cshogi
+      - name: Extract a mate proof with isolated cshogi DF-PN and verify in CFE
+        run: |
+          python tools/extract_cshogi_certificate.py --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' --output /tmp/cshogi-mate.certificate.json --max-search-nodes 200000 --max-tree-nodes 1000 --max-depth 32 --timeout-seconds 60
+          python tools/verify_certificate.py --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' --certificate /tmp/cshogi-mate.certificate.json
+      - name: Install Rust compiler and Cargo
+        run: sudo apt-get update && sudo apt-get install -y cargo
+      - name: Compare shared SFEN corpus with shogi-rs
+        run: python tools/conformance.py --engine shogi-rs
+      - name: Fetch pinned YaneuraOu GPL-3.0 source outside the CFE repository
+        run: |
+          git clone --filter=blob:none https://github.com/yaneurao/YaneuraOu.git /tmp/YaneuraOu
+          git -C /tmp/YaneuraOu checkout 1a74e5196e1a72f5e7b815826dc34001b07aa7e2
+      - name: Build YaneuraOu material edition for protocol conformance
+        run: make -C /tmp/YaneuraOu/source COMPILER=g++ TARGET_CPU=OTHER YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL normal -j2
+      - name: Compare shared SFEN corpus with YaneuraOu USI
+        run: python tools/conformance.py --engine yaneuraou --engine-path /tmp/YaneuraOu/source/YaneuraOu-by-gcc
+      - name: Generate deterministic reachable-position corpus
+        run: python tools/generate_random_corpus.py --games 6 --plies 96 --sample-every 8 --seed 20261123 --output /tmp/cfe-random-sfen-v1.jsonl
+      - name: Compare reachable positions with cshogi
+        run: python tools/conformance.py --engine cshogi --corpus /tmp/cfe-random-sfen-v1.jsonl
+      - name: Compare reachable positions with shogi-rs
+        run: python tools/conformance.py --engine shogi-rs --corpus /tmp/cfe-random-sfen-v1.jsonl
+      - name: Compare reachable positions with YaneuraOu USI
+        run: python tools/conformance.py --engine yaneuraou --engine-path /tmp/YaneuraOu/source/YaneuraOu-by-gcc --corpus /tmp/cfe-random-sfen-v1.jsonl

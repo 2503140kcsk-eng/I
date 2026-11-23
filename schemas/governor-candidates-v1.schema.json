@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://2503140kcsk-eng.github.io/I/schemas/governor-candidates-v1.schema.json",
+  "title": "CFE Governor candidate measurements v1",
+  "description": "Caller-supplied estimates/measurements for proof-reuse verification scheduling. Reuse probability is not inferred by the governor and must be calibrated by the caller.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "id", "reuse_probability", "expected_saved_nodes",
+      "verification_nodes", "estimated_ms", "memory_bytes"
+    ],
+    "properties": {
+      "id": { "type": "string", "minLength": 1 },
+      "reuse_probability": { "type": "number", "minimum": 0, "maximum": 1 },
+      "expected_saved_nodes": { "type": "integer", "minimum": 1 },
+      "verification_nodes": { "type": "integer", "minimum": 0 },
+      "estimated_ms": { "type": "integer", "minimum": 1 },
+      "memory_bytes": { "type": "integer", "minimum": 0 }
+    }
+  }
+}
