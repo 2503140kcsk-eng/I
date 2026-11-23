@@ -39,6 +39,25 @@ def _identity_for_position(position) -> dict[str, str]:
     return state_identity(position)
 
 
+def _validate_identity_record(record: Any, path: str) -> dict[str, str]:
+    _require(isinstance(record, dict), "identity must be an object", path)
+    _require(set(record) == {"key_version", "canonical_state", "state_key"},
+             "identity must contain exactly key_version, canonical_state, and state_key", path)
+    _require(record.get("key_version") == "CFE-SHOGI-STATE-V1",
+             "unsupported state-key version", path)
+    canonical = record.get("canonical_state")
+    _require(isinstance(canonical, str), "canonical_state must be a string", path)
+    try:
+        position = parse_sfen(canonical + " 1")
+    except ValueError as exc:
+        raise CertificateVerificationError(f"{path}: invalid canonical state: {exc}") from exc
+    _require(canonical_state(position) == canonical,
+             "identity canonical_state is not canonical", path)
+    expected = state_identity(position)
+    _require(record == expected, "identity digest is not the digest of its canonical_state", path)
+    return expected
+
+
 def build_node_identity(sfen: str) -> dict[str, str]:
     """Build the exact CFE identity record expected in a certificate node."""
     return _identity_for_position(parse_sfen(sfen))
@@ -55,6 +74,8 @@ def _verify_node(
     budget: list[int],
     max_nodes: int,
     ancestor_states: frozenset[str],
+    identity_policy: str,
+    identity_mismatches: list[int],
 ) -> int:
     _require(isinstance(node, dict), "node must be an object", path)
     _require(set(node).issubset({"identity", "children", "terminal"}),
@@ -66,12 +87,14 @@ def _verify_node(
     budget[0] += 1
     _require(budget[0] <= max_nodes, f"proof node count exceeds limit {max_nodes}", path)
 
+    recorded_identity = _validate_identity_record(node["identity"], path + ".identity")
     expected_identity = _identity_for_position(position)
-    _require(
-        node["identity"] == expected_identity,
-        "node identity does not match the position reached by replay",
-        path + ".identity",
-    )
+    if recorded_identity != expected_identity:
+        if identity_policy == "strict":
+            raise CertificateVerificationError(
+                f"{path}.identity: node identity does not match the position reached by replay"
+            )
+        identity_mismatches[0] += 1
 
     children = node["children"]
     _require(isinstance(children, list), "children must be an array", path + ".children")
@@ -120,6 +143,7 @@ def _verify_node(
             path=path + ".children[0].node", depth=depth + 1,
             max_depth=max_depth, budget=budget, max_nodes=max_nodes,
             ancestor_states=ancestor_states | {next_state},
+            identity_policy=identity_policy, identity_mismatches=identity_mismatches,
         )
 
     # Defender AND node: the certificate must cover every legal reply exactly.
@@ -146,6 +170,7 @@ def _verify_node(
             path=f"{path}.children[{index}].node", depth=depth + 1,
             max_depth=max_depth, budget=budget, max_nodes=max_nodes,
             ancestor_states=ancestor_states | {next_state},
+            identity_policy=identity_policy, identity_mismatches=identity_mismatches,
         ))
     return 1 + max(branch_lengths, default=0)
 
@@ -156,6 +181,7 @@ def verify_mate_certificate(
     *,
     max_nodes: int = 100_000,
     max_depth: int = 512,
+    identity_policy: str = "strict",
 ) -> dict[str, Any]:
     """Verify a forced-mate proof tree independently of the search engine.
 
@@ -168,6 +194,8 @@ def verify_mate_certificate(
              "max_nodes must be a positive integer", "$limits")
     _require(isinstance(max_depth, int) and not isinstance(max_depth, bool) and max_depth >= 0,
              "max_depth must be a non-negative integer", "$limits")
+    _require(identity_policy in ("strict", "replay"),
+             "identity_policy must be 'strict' or 'replay'", "$limits")
     _require(isinstance(certificate, dict), "certificate must be an object", "$")
     _require(set(certificate) == {"schema", "attacker", "root"},
              "certificate must contain exactly schema, attacker, and root", "$")
@@ -179,11 +207,14 @@ def verify_mate_certificate(
     root = certificate["root"]
     root_state = canonical_state(position)
     budget = [0]
+    identity_mismatches = [0]
     max_plies = _verify_node(
         root, position, attacker,
         path="$.root", depth=0, max_depth=max_depth,
         budget=budget, max_nodes=max_nodes,
         ancestor_states=frozenset({root_state}),
+        identity_policy=identity_policy,
+        identity_mismatches=identity_mismatches,
     )
     identity = state_identity(position)
     return {
@@ -192,6 +223,8 @@ def verify_mate_certificate(
         "attacker": attacker,
         "root_state_key": identity["state_key"],
         "verified_nodes": budget[0],
+        "identity_policy": identity_policy,
+        "identity_mismatches": identity_mismatches[0],
         "max_mate_plies": max_plies,
         "history_policy": "reject-repeated-position-per-branch",
     }
