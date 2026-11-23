@@ -113,26 +113,35 @@ CFE key.
 
 ### YaneuraOu (USI process-level check)
 
-Build or otherwise obtain a YaneuraOu executable separately, then run:
+The CI workflow fetches upstream YaneuraOu at the pinned commit
+`1a74e5196e1a72f5e7b815826dc34001b07aa7e2` into the temporary runner directory,
+builds the evaluation-file-free Material edition, and invokes it as an
+independent USI process. To run against a local build instead:
 
 ```sh
 python tools/conformance.py --engine yaneuraou --engine-path /path/to/YaneuraOu
 ```
 
-The adapter starts an independent USI process, completes `usi`/`isready`, sends
-`position sfen`, reads the SFEN from the `d` diagnostic output, and checks the
-canonical state and CFE key. It also compares `go perft 1` with the CFE legal
-move count. Perft checks the count, **not** the exact move set; the cshogi and
-shogi-rs adapters provide the exact move-set checks. Some YaneuraOu builds may
-require a compatible evaluation file even for engine initialization/perft;
-configure that separately according to the build in use.
+The adapter completes `usi`/`isready`, sends `position sfen`, reads the SFEN
+from the `d` diagnostic output, and checks the canonical state and CFE key. It
+also compares `go perft 1` with the CFE legal-move count. Perft checks the
+count, **not** the exact move set; cshogi and shogi-rs provide exact legal-move
+set checks. The pinned Material build avoids needing a separate NNUE evaluation
+file for this protocol test.
 
 ## CI and free-use policy
 
-- `core.yml` runs the dependency-free tests, CLI smoke check, then the
-  cshogi and shogi-rs corpus checks on a standard Ubuntu runner.
-- YaneuraOu remains an explicit local process check because the engine binary
-  and any required evaluation data are deployment-specific.
+- `core.yml` runs the 24 dependency-free core tests, compile and CLI checks,
+  then the shared corpus against cshogi, shogi-rs, and a pinned YaneuraOu build
+  on a standard Ubuntu runner.
+- On the checked-in 12-position corpus, cshogi and shogi-rs match the exact
+  legal-move set, canonical state, and CFE key; YaneuraOu matches the canonical
+  state, CFE key, and perft-1 move count.
+
+The repository is public. GitHub documents that standard GitHub-hosted runner
+usage for public repositories is free; this workflow does not request larger
+runners or paid external services. See GitHub's current
+[billing documentation](https://docs.github.com/en/actions/concepts/billing-and-usage).
 
 The repository is public. GitHub documents that standard GitHub-hosted runner
 usage for public repositories is free; this workflow does not request larger
