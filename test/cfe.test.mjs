@@ -20,7 +20,7 @@ import {
   CSHOGI_DFPN_EXPORT_SCHEMA,
   CSHOGI_DFPN_EXPORT_VERSION
 } from "../src/cfe/index.mjs";
-import { parsePositionCommand, parseGoCommand, UsiProxyObserver } from "../src/cfe/usi-observer.mjs";
+import { parsePositionCommand, parseGoCommand, parseDfpnInfoLine, UsiProxyObserver } from "../src/cfe/usi-observer.mjs";
 
 const historyDigest = function (digit) { return String(digit).repeat(64); };
 
@@ -326,6 +326,51 @@ test("USI go parser distinguishes mate search from ordinary search", function ()
   assert.equal(go.parameters.btime, 10000);
   assert.equal(go.parameters.wtime, 9000);
   assert.equal(go.parameters.byoyomi, 500);
+});
+
+
+test("USI observer parses YaneuraOu DFPN metrics as untrusted telemetry", function () {
+  const metrics = parseDfpnInfoLine("info string pn 0 dn 1073741823 nodes_searched 54321");
+  assert.deepEqual(metrics, {
+    schema: "cfe.usi.dfpn-diagnostics",
+    version: 1,
+    pn: 0,
+    dn: 1073741823,
+    searchedNodes: 54321,
+    reportedStatus: "ENGINE_REPORTED_PROVEN",
+    proofVerified: false,
+    trust: "untrusted-engine-telemetry"
+  });
+  assert.equal(parseDfpnInfoLine("info depth 20 score cp 150 nodes 300"), null);
+  assert.equal(parseDfpnInfoLine("info string string unrelated"), null);
+});
+
+test("USI observer stores DFPN diagnostics without upgrading them into a certificate", function () {
+  const observer = new UsiProxyObserver();
+  observer.acceptGuiLine("go mate infinite");
+  observer.acceptEngineLine("info string pn 0 dn 999 nodes_searched 12");
+  const state = observer.snapshot();
+  assert.equal(state.mateSearchMetrics.reportedStatus, "ENGINE_REPORTED_PROVEN");
+  assert.equal(state.mateSearchMetrics.proofVerified, false);
+  observer.acceptEngineLine("checkmate 3c3d 7g7f");
+  assert.equal(observer.snapshot().mateClaim.status, "ENGINE_CLAIM_ONLY");
+  assert.equal(observer.snapshot().mateClaim.proofVerified, false);
+  assert.equal(observer.snapshot().mateSearchMetrics.proofVerified, false);
+});
+
+test("USI observer contains malformed DFPN telemetry and clears it on a new search", function () {
+  const observer = new UsiProxyObserver();
+  observer.acceptGuiLine("go mate infinite");
+  observer.acceptEngineLine("info string pn nope dn 1 nodes_searched 4");
+  assert.equal(observer.snapshot().malformedDfpnInfoCount, 1);
+  assert.equal(observer.snapshot().mateSearchMetrics, null);
+  observer.acceptEngineLine("info string pn 4 pn 0 dn 1 nodes_searched 3");
+  assert.equal(observer.snapshot().malformedDfpnInfoCount, 2);
+  observer.acceptEngineLine("info string pn 2 dn 3 nodes_searched 10");
+  assert.equal(observer.snapshot().mateSearchMetrics.reportedStatus, "UNSOLVED");
+  observer.acceptGuiLine("go mate 1000");
+  assert.equal(observer.snapshot().mateSearchMetrics, null);
+  assert.equal(observer.snapshot().malformedDfpnInfoCount, 0);
 });
 
 test("USI observer passes commands through and tracks position/search state", function () {

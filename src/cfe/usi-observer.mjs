@@ -127,6 +127,46 @@ export function parseGoCommand(line) {
   return result;
 }
 
+
+/**
+ * Parses YaneuraOu/Tanuki DFPN progress diagnostics.
+ *
+ * These values are engine-reported telemetry, never certificate evidence.
+ * Returns null for unrelated USI info lines.
+ */
+export function parseDfpnInfoLine(line) {
+  const tokens = tokenize(line);
+  if (tokens[0] !== "info" || tokens[1] !== "string") return null;
+
+  const fields = new Map();
+  for (let i = 2; i < tokens.length - 1; i += 1) {
+    const key = tokens[i];
+    if (!["pn", "dn", "nodes_searched"].includes(key)) continue;
+    if (fields.has(key)) throw new TypeError("Duplicate DFPN info field: " + key);
+    const raw = tokens[i + 1];
+    if (!/^\d+$/.test(raw)) throw new TypeError("Invalid DFPN integer for " + key);
+    const value = Number(raw);
+    if (!Number.isSafeInteger(value)) throw new RangeError("DFPN integer exceeds the safe range: " + key);
+    fields.set(key, value);
+    i += 1;
+  }
+
+  if (!fields.has("pn") || !fields.has("dn") || !fields.has("nodes_searched")) return null;
+  const pn = fields.get("pn");
+  const dn = fields.get("dn");
+  return {
+    schema: "cfe.usi.dfpn-diagnostics",
+    version: 1,
+    pn: pn,
+    dn: dn,
+    searchedNodes: fields.get("nodes_searched"),
+    reportedStatus: pn === 0 ? "ENGINE_REPORTED_PROVEN" :
+      dn === 0 ? "ENGINE_REPORTED_DISPROVEN" : "UNSOLVED",
+    proofVerified: false,
+    trust: "untrusted-engine-telemetry"
+  };
+}
+
 export class UsiProxyObserver {
   #state = {
     usiOk: false,
@@ -137,7 +177,9 @@ export class UsiProxyObserver {
     position: null,
     activeSearch: null,
     mateClaim: null,
-    bestMove: null
+    bestMove: null,
+    mateSearchMetrics: null,
+    malformedDfpnInfoCount: 0
   };
 
   snapshot() {
@@ -161,6 +203,8 @@ export class UsiProxyObserver {
       this.#state.activeSearch = null;
       this.#state.mateClaim = null;
       this.#state.bestMove = null;
+      this.#state.mateSearchMetrics = null;
+      this.#state.malformedDfpnInfoCount = 0;
     } else if (command === "position") {
       this.#state.position = parsePositionCommand(line);
       this.#state.mateClaim = null;
@@ -171,6 +215,10 @@ export class UsiProxyObserver {
       this.#state.stopRequested = false;
       this.#state.mateClaim = null;
       this.#state.bestMove = null;
+      this.#state.mateSearchMetrics = null;
+      this.#state.malformedDfpnInfoCount = 0;
+      this.#state.mateSearchMetrics = null;
+      this.#state.malformedDfpnInfoCount = 0;
     } else if (command === "stop") {
       this.#state.stopRequested = true;
     } else if (command === "quit") {
@@ -189,6 +237,13 @@ export class UsiProxyObserver {
       this.#state.usiOk = true;
     } else if (tokens[0] === "readyok") {
       this.#state.ready = true;
+    } else if (tokens[0] === "info") {
+      try {
+        const metrics = parseDfpnInfoLine(line);
+        if (metrics) this.#state.mateSearchMetrics = metrics;
+      } catch {
+        this.#state.malformedDfpnInfoCount += 1;
+      }
     } else if (tokens[0] === "bestmove") {
       this.#state.bestMove = tokens[1] || null;
       this.#state.searching = false;

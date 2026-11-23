@@ -27,7 +27,9 @@ normal alpha-beta search and mate-search support. The current Tanuki mate
 engine source identifies df-pn with TCA and still marks dominance,
 ProofPieces and SNDA as TODOs. Therefore, the integration boundary should be
 a USI process/protocol adapter. A returned `checkmate` line is a candidate PV,
-not a complete AND/OR proof DAG.
+not a complete AND/OR proof DAG. Its `info string pn ... dn ...
+nodes_searched ...` line is useful search telemetry; the USI observer parses
+it as `mateSearchMetrics` and hard-labels it `proofVerified: false`.
 
 Sources:
 - [Repository](https://github.com/yaneurao/YaneuraOu)
@@ -250,3 +252,13 @@ cshogi source revision:
 - [DFPN header](https://github.com/TadaoYamaoka/cshogi/blob/26889135717af0a08def9663bb73f1abe5263c66/src/dfpn.h)
 - [DFPN implementation](https://github.com/TadaoYamaoka/cshogi/blob/26889135717af0a08def9663bb73f1abe5263c66/src/dfpn.cpp)
 - [Cython API](https://github.com/TadaoYamaoka/cshogi/blob/26889135717af0a08def9663bb73f1abe5263c66/cshogi/_cshogi.pyx)
+
+
+### YaneuraOu DFPN telemetry boundary
+
+The USI observer recognises the Tanuki mate engine's
+`info string pn <n> dn <n> nodes_searched <n>` record. It captures these
+values for profiling and Governor experiments only. `pn = 0` becomes
+`ENGINE_REPORTED_PROVEN`, not `VERIFIED_MATE`; only Certificate Verifier
+can issue the latter. Malformed or duplicate fields are counted and ignored,
+without interrupting USI forwarding.
