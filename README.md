@@ -32,6 +32,11 @@ engine-neutral conformance corpus for the CFE (Certificate / Footprint) layer.
 - Portable JSON position envelope (`cfe.shogi.position.v1`) for consumers on
   iPhone, Web, GPU hosts, and other runtimes. It is a state snapshot, not a
   search-proof certificate or history-reachability proof.
+- Independent finite forced-mate certificate verifier
+  (`cfe.shogi.mate-certificate.v1`): attacker nodes are OR nodes with exactly
+  one legal move, defender nodes are AND nodes covering every legal reply,
+  and leaves must be checkmate. Every node carries exact canonical state and
+  a versioned CFE state key.
 - Shared JSONL corpus and separate process/API adapters for cshogi,
   shogi-rs, and YaneuraOu. The CFE core itself has no third-party runtime
   dependencies.
@@ -47,7 +52,7 @@ python cfe_shogi.py --sfen 'lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSG
 python cfe_shogi.py --sfen 'lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1' --move 7g7f
 ```
 
-The checked-in core tests cover 24 focused cases, including every unpromoted piece family, promoted-piece movement, and a rotate-and-color-swap metamorphic test over the full corpus. The opening-position
+The checked-in core tests cover the move families and rule boundaries, including every unpromoted piece family, promoted-piece movement, and a rotate-and-color-swap metamorphic test over the full corpus. The opening-position
 reference counts are 30 legal moves at depth 1, 900 nodes at depth 2, and
 25,470 nodes at depth 3.
 
@@ -71,6 +76,34 @@ This is stronger than comparing private engine Zobrist keys. Those keys are
 engine-local implementation details and are not intended to be equal across
 engines. A digest is not mathematically injective, which is why the full
 canonical state is retained and compared as well.
+
+## Independent forced-mate certificate verification
+
+The proof verifier is independent from YaneuraOu, cshogi, and shogi-rs. It
+receives the root SFEN from the caller (not from the certificate), then
+replays every certificate move through the legality core.
+
+At an attacker-to-move node, exactly one legal move is required (OR proof).
+At a defender-to-move node, the child move list must equal the complete sorted
+legal-move set (AND proof). A terminal leaf is accepted only if the defender is
+in check and has no legal move. Every node includes exact canonical state and
+versioned SHA-256 identity. Repeated states on a branch are rejected so v1
+does not silently assume repetition adjudication away.
+
+Verify the checked-in one-ply example:
+
+```sh
+python tools/verify_certificate.py \
+  --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' \
+  --certificate examples/mate-in-1.certificate.json
+```
+
+The verifier enforces node-count and depth limits. Certificate v1 is a finite
+standard-shogi checkmate proof tree; it does not yet cover repetition,
+perpetual-check adjudication, entering-king declarations, clocks, variants,
+or DAG node sharing. It is not a generic proof for every engine score or
+evaluation claim. The structure is specified in
+`schemas/mate-certificate-v1.schema.json`.
 
 ## Shared cross-engine corpus
 
@@ -167,24 +200,23 @@ usage for public repositories is free; this workflow does not request larger
 runners or paid external services. See GitHub's current
 [billing documentation](https://docs.github.com/en/actions/concepts/billing-and-usage).
 
-The repository is public. GitHub documents that standard GitHub-hosted runner
-usage for public repositories is free; this workflow does not request larger
-runners or paid external services. See GitHub's current
-[billing documentation](https://docs.github.com/en/actions/concepts/billing-and-usage).
-
 ## CFE architecture handoff
 
 `cfe_shogi.py` is the independent rule and identity boundary. Its versioned
 position envelope provides the shared state input to the next CFE layers:
 
-- **Certificate Extractor:** later consume search/proof evidence and emit
-  condition cubes; this is not implemented in this change.
-- **Footprint Matcher:** match exact canonical state and versioned keys, with
-  condition-cube inclusion checks added in a later stage.
-- **Certificate Verifier:** replay each certified USI move through the
-  independent legality core; the single-move verifier is implemented here.
-- **Governor:** later allocate expensive search/verification resources based
-  on proven footprint reuse economics; not implemented in this change.
+- **Certificate Extractor:** still to implement; convert a search/DFPN proof
+  tree into the canonical AND/OR certificate format and minimize redundant
+  branches without weakening defender coverage.
+- **Footprint Matcher:** still to implement; exact canonical-state matching is
+  available now, while sound condition-cube matching and inclusion proofs
+  remain a separate research task.
+- **Certificate Verifier:** implemented for finite forced-checkmate trees.
+  It replays every edge through the independent legality core, checks exact
+  node identities, requires one attacker move and every defender legal reply,
+  and accepts leaves only at checkmate.
+- **Governor:** still to implement; resource allocation and reuse economics
+  must be driven by measured verification cost and expected proof reuse.
 
 YaneuraOu remains the main search engine. cshogi DFPN/proof-piece work,
 dlshogi self-play/training, and mShogi research remain separate services or
