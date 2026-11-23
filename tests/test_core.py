@@ -95,7 +95,8 @@ class MoveTests(unittest.TestCase):
 
     def test_drop_rules(self):
         s = "8k/9/9/4P4/9/9/9/9/K8 b PN 1"
-        p = parse_sfen(s)\n        self.assertFalse(is_legal_move(p, parse_move("P*5f")))  # nifu
+        p = parse_sfen(s)
+        self.assertFalse(is_legal_move(p, parse_move("P*5f")))  # nifu
         self.assertFalse(is_legal_move(p, parse_move("P*4a")))  # pawn dead rank
         self.assertFalse(is_legal_move(p, parse_move("N*4b")))  # knight dead rank
         self.assertTrue(is_legal_move(p, parse_move("P*4f")))
