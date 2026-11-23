@@ -1,0 +1,26 @@
+{
+  "schema": "cfe.shogi.canonical-vectors",
+  "version": 1,
+  "canonicalization": "CFE-CJSON-1",
+  "hash": "SHA-256 over UTF-8 bytes of the canonical JSON string",
+  "vectors": [
+    {
+      "name": "sorted-object-keys",
+      "input": { "b": 2, "a": 1 },
+      "canonical": "{\"a\":1,\"b\":2}",
+      "sha256": "43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777"
+    },
+    {
+      "name": "integer-looking-object-keys-are-lexicographic",
+      "input": { "2": "two", "10": "ten" },
+      "canonical": "{\"10\":\"ten\",\"2\":\"two\"}",
+      "sha256": "b71e124675fc80e7314688bffdb68e83515851fb51474125db9a0c4c8aca3808"
+    },
+    {
+      "name": "empty-string-bytes",
+      "raw": "",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "note": "Tests the SHA-256 primitive, not a JSON value."
+    }
+  ]
+}

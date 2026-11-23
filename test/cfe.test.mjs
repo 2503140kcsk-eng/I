@@ -1,0 +1,1021 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  canonicalJson,
+  extractCertificate,
+  createFootprint,
+  matchFootprint,
+  compareConditionCubes,
+  compareFootprints,
+  summarizeProofDag,
+  planTasks,
+  verifyCertificate,
+  VERIFIER_ABI,
+  createHistoryLedger,
+  appendHistoryEvent,
+  verifyHistoryLedger,
+  historyPositionKey,
+  importCshogiDfpnExport,
+  compareCshogiProofPieces,
+  compareCshogiHandDominance,
+  CSHOGI_REPEAT_SENTINEL,
+  CSHOGI_DFPN_EXPORT_SCHEMA,
+  CSHOGI_DFPN_EXPORT_VERSION
+} from "../src/cfe/index.mjs";
+import { parsePositionCommand, parseGoCommand, parseDfpnInfoLine, UsiProxyObserver } from "../src/cfe/usi-observer.mjs";
+
+const historyDigest = function (digit) { return String(digit).repeat(64); };
+
+function makeRules() {
+  const transitions = new Map([
+    ["root|A", "defender"],
+    ["defender|e1", "attacker-1"],
+    ["defender|e2", "attacker-2"],
+    ["attacker-1|m1", "mate-1"],
+    ["attacker-2|m2", "mate-2"]
+  ]);
+  const states = new Map([
+    ["root", { sfen: "root position", historyDigest: historyDigest(1), turn: "b" }],
+    ["defender", { sfen: "defender position", historyDigest: historyDigest(2), turn: "w" }],
+    ["attacker-1", { sfen: "attacker branch 1", historyDigest: historyDigest(3), turn: "b" }],
+    ["attacker-2", { sfen: "attacker branch 2", historyDigest: historyDigest(4), turn: "b" }],
+    ["mate-1", { sfen: "mate position 1", historyDigest: historyDigest(5), turn: "w" }],
+    ["mate-2", { sfen: "mate position 2", historyDigest: historyDigest(6), turn: "w" }]
+  ]);
+
+  const rules = {
+    rulesetId: "test-tsume-v1",
+    verifierAbi: VERIFIER_ABI,
+    allowOpaqueHistory: true,
+    decodeState: function (envelope) {
+      const state = Array.from(states.values()).find(function (value) {
+        return canonicalJson(value) === canonicalJson(envelope);
+      });
+      if (state) return state;
+      if (envelope && envelope.sfen === "root position") return { ...envelope };
+      throw new Error("Unknown test position");
+    },
+    canonicalState: function (state) { return { ...state }; },
+    sideToMove: function (state) { return state.turn; },
+    legalCheckingMoves: function (state) {
+      if (state.sfen === "root position") return ["A", "unused-check"];
+      if (state.sfen === "attacker branch 1") return ["m1"];
+      if (state.sfen === "attacker branch 2") return ["m2"];
+      return [];
+    },
+    legalEvasions: function (state) {
+      return state.sfen === "defender position" ? ["e1", "e2"] : [];
+    },
+    applyMove: function (state, move) {
+      let source = "unknown";
+      if (state.sfen === "root position") source = "root";
+      else if (state.sfen === "defender position") source = "defender";
+      else if (state.sfen === "attacker branch 1") source = "attacker-1";
+      else if (state.sfen === "attacker branch 2") source = "attacker-2";
+      const next = transitions.get(source + "|" + move);
+      if (!next) throw new Error("Illegal test move");
+      return states.get(next);
+    },
+    terminalStatus: function (state) {
+      return state.sfen.startsWith("mate position") ? "checkmate" : "ongoing";
+    }
+  };
+  return { rules: rules, states: states };
+}
+
+function candidateFrom(states) {
+  return {
+    rulesetId: "test-tsume-v1",
+    attackerSide: "b",
+    root: "r",
+    provenance: { generator: "test-fixture", search: "dfpn" },
+    nodes: {
+      r: { state: states.get("root"), kind: "OR", edges: [{ move: "A", to: "d" }] },
+      d: {
+        state: states.get("defender"),
+        kind: "AND",
+        edges: [{ move: "e1", to: "a1" }, { move: "e2", to: "a2" }]
+      },
+      a1: { state: states.get("attacker-1"), kind: "OR", edges: [{ move: "m1", to: "t1" }] },
+      a2: { state: states.get("attacker-2"), kind: "OR", edges: [{ move: "m2", to: "t2" }] },
+      t1: { state: states.get("mate-1"), kind: "TERMINAL_MATE", edges: [] },
+      t2: { state: states.get("mate-2"), kind: "TERMINAL_MATE", edges: [] }
+    }
+  };
+}
+
+
+
+
+
+test("allowOpaqueHistory never skips replay when a ledger is actually supplied", async function () {
+  const initialSfen = "4k4/9/9/9/9/9/9/9/4K4 b - 1";
+  const ledger = await createHistoryLedger({
+    rulesetId: "test-tsume-v1",
+    initialSfen: initialSfen
+  });
+  const state = {
+    sfen: initialSfen,
+    turn: "b",
+    historyDigest: ledger.digest,
+    historyLedger: ledger
+  };
+  const rules = {
+    rulesetId: "test-tsume-v1",
+    verifierAbi: VERIFIER_ABI,
+    allowOpaqueHistory: true,
+    decodeState: function (envelope) { return { ...envelope }; },
+    canonicalState: function (position) { return { ...position }; },
+    sideToMove: function (position) { return position.turn; },
+    legalCheckingMoves: function () { return []; },
+    legalEvasions: function () { return []; },
+    applyMove: function () { throw new Error("not reached"); },
+    terminalStatus: function () { return "ongoing"; },
+    replayHistory: async function () {
+      throw new Error("fabricated history must not be accepted");
+    }
+  };
+  const result = await extractCertificate({
+    rulesetId: "test-tsume-v1",
+    attackerSide: "b",
+    root: "r",
+    nodes: { r: { state: state, kind: "OR", edges: [] } }
+  }, rules, { expectedRootState: state });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "HISTORY_REPLAY_FAILED");
+});
+
+test("production verifier mode rejects an opaque digest without a history witness", async function () {
+  const fixture = makeRules();
+  const rules = {
+    ...fixture.rules,
+    allowOpaqueHistory: false,
+    replayHistory: async function () { throw new Error("not reached without a history witness"); }
+  };
+  const candidate = candidateFrom(fixture.states);
+  const result = await extractCertificate(candidate, rules, {
+    expectedRootState: candidate.nodes.r.state
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "HISTORY_WITNESS_REQUIRED");
+});
+
+test("production verifier mode rejects a history ledger with a mismatched root commitment", async function () {
+  const initialSfen = "4k4/9/9/9/9/9/9/9/4K4 b - 1";
+  const ledger = await createHistoryLedger({
+    rulesetId: "test-tsume-v1",
+    initialSfen: initialSfen
+  });
+  const fixture = makeRules();
+  const state = {
+    sfen: initialSfen,
+    turn: "b",
+    historyDigest: "0".repeat(64),
+    historyLedger: ledger
+  };
+  const candidate = {
+    rulesetId: fixture.rules.rulesetId,
+    attackerSide: "b",
+    root: "r",
+    nodes: { r: { state, kind: "OR", edges: [] } }
+  };
+  const rules = {
+    ...fixture.rules,
+    allowOpaqueHistory: false,
+    decodeState: async function (envelope) { return { ...envelope }; },
+    replayHistory: async function () { throw new Error("not reached before the digest mismatch"); }
+  };
+  const result = await extractCertificate(candidate, rules, { expectedRootState: state });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "HISTORY_COMMITMENT_MISMATCH");
+});
+
+
+test("history ledger rejects unknown fields, malformed USI tokens and invalid limits", async function () {
+  const initialSfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+  const ledger = await createHistoryLedger({
+    rulesetId: "standard-shogi-v1",
+    initialSfen: initialSfen
+  });
+  const valid = await appendHistoryEvent(ledger, {
+    move: "7g7f",
+    mover: "black",
+    gaveCheck: false,
+    resultingSfen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 2"
+  });
+  const extraTopLevel = structuredClone(valid);
+  extraTopLevel.uncommitted = true;
+  assert.equal((await verifyHistoryLedger(extraTopLevel)).ok, false);
+
+  const extraEvent = structuredClone(valid);
+  extraEvent.events[0].comment = "not part of the signed event schema";
+  assert.equal((await verifyHistoryLedger(extraEvent)).ok, false);
+
+  await assert.rejects(appendHistoryEvent(ledger, {
+    move: "not-a-usI-move",
+    mover: "black",
+    gaveCheck: false,
+    resultingSfen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 2"
+  }), /standard USI move token/);
+
+  await assert.rejects(appendHistoryEvent(ledger, {
+    move: "7g7f",
+    mover: "black",
+    gaveCheck: false,
+    resultingSfen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 2",
+    extra: true
+  }), /unknown fields/);
+
+  assert.equal((await verifyHistoryLedger(valid, { maxEvents: Number.NaN })).ok, false);
+  assert.equal((await verifyHistoryLedger(valid, { maxEvents: 100001 })).ok, false);
+});
+
+test("history ledger commits to every move and resulting SFEN", async function () {
+  const initialSfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+  let ledger = await createHistoryLedger({
+    rulesetId: "standard-shogi-tsume-v1",
+    initialSfen: initialSfen
+  });
+  ledger = await appendHistoryEvent(ledger, {
+    move: "7g7f",
+    mover: "black",
+    gaveCheck: false,
+    resultingSfen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 2"
+  });
+  ledger = await appendHistoryEvent(ledger, {
+    move: "3c3d",
+    mover: "white",
+    gaveCheck: false,
+    resultingSfen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 3"
+  });
+  const verified = await verifyHistoryLedger(ledger);
+  assert.equal(verified.ok, true);
+  assert.equal(verified.ply, 2);
+  assert.equal(verified.sideToMove, "black");
+  assert.equal(verified.digest, ledger.digest);
+});
+
+test("history ledger rejects tampering and wrong mover order", async function () {
+  const initialSfen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+  const ledger = await createHistoryLedger({ rulesetId: "standard-shogi-v1", initialSfen });
+  const valid = await appendHistoryEvent(ledger, {
+    move: "7g7f",
+    mover: "black",
+    gaveCheck: false,
+    resultingSfen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 2"
+  });
+  const tampered = structuredClone(valid);
+  tampered.events[0].move = "2g2f";
+  assert.equal((await verifyHistoryLedger(tampered)).ok, false);
+  await assert.rejects(appendHistoryEvent(ledger, {
+    move: "3c3d",
+    mover: "white",
+    gaveCheck: false,
+    resultingSfen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 3"
+  }), /mover/);
+});
+
+test("position cache key includes ruleset and history digest", async function () {
+  const state = {
+    sfen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+    historyDigest: historyDigest(1)
+  };
+  const a = await historyPositionKey({
+    rulesetId: "standard-shogi-v1",
+    sfen: state.sfen,
+    historyDigest: state.historyDigest
+  });
+  const b = await historyPositionKey({
+    rulesetId: "standard-shogi-v1",
+    sfen: state.sfen,
+    historyDigest: historyDigest(2)
+  });
+  const c = await historyPositionKey({
+    rulesetId: "other-rules-v1",
+    sfen: state.sfen,
+    historyDigest: state.historyDigest
+  });
+  assert.notEqual(a, b);
+  assert.notEqual(a, c);
+});
+
+test("USI position parser handles startpos with a move history", function () {
+  const parsed = parsePositionCommand("position startpos moves 7g7f 3c3d 2g2f");
+  assert.equal(parsed.kind, "startpos");
+  assert.deepEqual(parsed.moves, ["7g7f", "3c3d", "2g2f"]);
+});
+
+test("USI position parser preserves SFEN fields and drops", function () {
+  const parsed = parsePositionCommand(
+    "position sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1 moves 7g7f P*5e"
+  );
+  assert.equal(parsed.kind, "sfen");
+  assert.equal(parsed.sfen, "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1");
+  assert.deepEqual(parsed.moves, ["7g7f", "P*5e"]);
+});
+
+test("USI go parser distinguishes mate search from ordinary search", function () {
+  assert.equal(parseGoCommand("go mate").mode, "mate");
+  assert.deepEqual(parseGoCommand("go mate").mateTimeLimit, { kind: "omitted" });
+  assert.deepEqual(parseGoCommand("go mate 60000").mateTimeLimit, {
+    kind: "milliseconds",
+    value: 60000
+  });
+  assert.deepEqual(parseGoCommand("go mate infinite").mateTimeLimit, { kind: "infinite" });
+  assert.throws(function () { parseGoCommand("go mate bogus"); }, /milliseconds or infinite/);
+  const go = parseGoCommand("go btime 10000 wtime 9000 byoyomi 500");
+  assert.equal(go.mode, "normal");
+  assert.equal(go.parameters.btime, 10000);
+  assert.equal(go.parameters.wtime, 9000);
+  assert.equal(go.parameters.byoyomi, 500);
+});
+
+
+test("USI observer parses YaneuraOu DFPN metrics as untrusted telemetry", function () {
+  const metrics = parseDfpnInfoLine("info string pn 0 dn 1073741823 nodes_searched 54321");
+  assert.deepEqual(metrics, {
+    schema: "cfe.usi.dfpn-diagnostics",
+    version: 1,
+    pn: 0,
+    dn: 1073741823,
+    searchedNodes: 54321,
+    reportedStatus: "ENGINE_REPORTED_PROVEN",
+    proofVerified: false,
+    trust: "untrusted-engine-telemetry"
+  });
+  assert.equal(parseDfpnInfoLine("info depth 20 score cp 150 nodes 300"), null);
+  assert.equal(parseDfpnInfoLine("info string string unrelated"), null);
+});
+
+test("USI observer stores DFPN diagnostics without upgrading them into a certificate", function () {
+  const observer = new UsiProxyObserver();
+  observer.acceptGuiLine("go mate infinite");
+  observer.acceptEngineLine("info string pn 0 dn 999 nodes_searched 12");
+  const state = observer.snapshot();
+  assert.equal(state.mateSearchMetrics.reportedStatus, "ENGINE_REPORTED_PROVEN");
+  assert.equal(state.mateSearchMetrics.proofVerified, false);
+  observer.acceptEngineLine("checkmate 3c3d 7g7f");
+  assert.equal(observer.snapshot().mateClaim.status, "ENGINE_CLAIM_ONLY");
+  assert.equal(observer.snapshot().mateClaim.proofVerified, false);
+  assert.equal(observer.snapshot().mateSearchMetrics.proofVerified, false);
+});
+
+test("USI observer contains malformed DFPN telemetry and clears it on a new search", function () {
+  const observer = new UsiProxyObserver();
+  observer.acceptGuiLine("go mate infinite");
+  observer.acceptEngineLine("info string pn nope dn 1 nodes_searched 4");
+  assert.equal(observer.snapshot().malformedDfpnInfoCount, 1);
+  assert.equal(observer.snapshot().mateSearchMetrics, null);
+  observer.acceptEngineLine("info string pn 4 pn 0 dn 1 nodes_searched 3");
+  assert.equal(observer.snapshot().malformedDfpnInfoCount, 2);
+  observer.acceptEngineLine("info string pn 2 dn 3 nodes_searched 10");
+  assert.equal(observer.snapshot().mateSearchMetrics.reportedStatus, "UNSOLVED");
+  observer.acceptGuiLine("go mate 1000");
+  assert.equal(observer.snapshot().mateSearchMetrics, null);
+  assert.equal(observer.snapshot().malformedDfpnInfoCount, 0);
+});
+
+test("USI observer passes commands through and tracks position/search state", function () {
+  const observer = new UsiProxyObserver();
+  const position = observer.acceptGuiLine("position startpos moves 7g7f");
+  assert.equal(position.forward, true);
+  assert.equal(observer.snapshot().position.moves.length, 1);
+  observer.acceptGuiLine("go mate");
+  assert.equal(observer.snapshot().searching, true);
+  assert.equal(observer.snapshot().activeSearch.mode, "mate");
+  observer.acceptEngineLine("checkmate 3c3d 7g7f");
+  assert.equal(observer.snapshot().mateClaim.status, "ENGINE_CLAIM_ONLY");
+  assert.equal(observer.snapshot().mateClaim.proofVerified, false);
+  assert.equal(observer.snapshot().searching, false);
+  assert.equal(observer.snapshot().activeSearch, null);
+  observer.acceptEngineLine("bestmove resign");
+  assert.equal(observer.snapshot().searching, false);
+});
+
+
+test("USI observer recognises checkmate notimplemented without accepting proof", function () {
+  const observer = new UsiProxyObserver();
+  observer.acceptGuiLine("go mate infinite");
+  observer.acceptEngineLine("checkmate notimplemented");
+  const state = observer.snapshot();
+  assert.equal(state.mateClaim.status, "ENGINE_NOT_IMPLEMENTED");
+  assert.equal(state.mateClaim.proofVerified, false);
+  assert.equal(state.searching, false);
+});
+
+test("USI observer marks a bare checkmate response malformed and terminal", function () {
+  const observer = new UsiProxyObserver();
+  observer.acceptGuiLine("go mate 1000");
+  observer.acceptEngineLine("checkmate");
+  const state = observer.snapshot();
+  assert.equal(state.mateClaim.status, "MALFORMED_EMPTY_CLAIM");
+  assert.equal(state.proofVerified, undefined);
+  assert.equal(state.searching, false);
+});
+
+test("USI observer treats timeout and nomate as engine reports, not certificates", function () {
+  const observer = new UsiProxyObserver();
+  observer.acceptGuiLine("go mate");
+  observer.acceptEngineLine("checkmate timeout");
+  assert.equal(observer.snapshot().mateClaim.status, "INCOMPLETE");
+  assert.equal(observer.snapshot().mateClaim.proofVerified, false);
+  observer.acceptEngineLine("checkmate nomate");
+  assert.equal(observer.snapshot().mateClaim.status, "ENGINE_REPORT_NO_MATE");
+  assert.equal(observer.snapshot().mateClaim.proofVerified, false);
+});
+
+test("canonical JSON ignores object insertion order and rejects unsafe values", function () {
+  assert.equal(canonicalJson({ b: 2, a: 1 }), canonicalJson({ a: 1, b: 2 }));
+  assert.throws(function () { canonicalJson({ value: Number.NaN }); }, /Non-finite/);
+  const cyclic = {};
+  cyclic.self = cyclic;
+  assert.throws(function () { canonicalJson(cyclic); }, /Cycle/);
+});
+
+
+test("CFE-CJSON-1 matches the shared canonical JSON and SHA-256 vector", async function () {
+  const { sha256Hex, hashCanonical } = await import("../src/cfe/canonical.mjs");
+  assert.equal(canonicalJson({ b: 2, a: 1 }), "{\"a\":1,\"b\":2}");
+  assert.equal(
+    await sha256Hex(""),
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  );
+  assert.equal(
+    await hashCanonical({ b: 2, a: 1 }),
+    "43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777"
+  );
+});
+
+test("canonical JSON rejects ambiguous values across native and WASM runtimes", function () {
+  assert.throws(function () { canonicalJson({ value: 9007199254740992 }); }, /Unsafe integer/);
+  assert.throws(function () { canonicalJson("\uD800"); }, /surrogate/);
+  assert.throws(function () { canonicalJson({ get value() { return 1; } }); }, /Accessor/);
+  const array = [1];
+  array.extra = 2;
+  assert.throws(function () { canonicalJson(array); }, /Custom array property/);
+  const numericKeys = { "2": "two", "10": "ten" };
+  assert.equal(canonicalJson(numericKeys), '{"10":"ten","2":"two"}');
+  const hidden = {};
+  Object.defineProperty(hidden, "secret", { value: 1, enumerable: false });
+  assert.throws(function () { canonicalJson(hidden); }, /Non-enumerable/);
+});
+
+test("extractor builds and verifies a complete AND/OR mate DAG", async function () {
+  const fixture = makeRules();
+  const result = await extractCertificate(candidateFrom(fixture.states), fixture.rules, { expectedRootState: fixture.states.get("root") });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.verification.code, "VERIFIED_MATE");
+  assert.equal(result.verification.nodeCount, 6);
+  assert.equal(result.proofSummary.nodeCount, 6);
+  assert.equal(result.proofSummary.edgeCount, 5);
+  assert.equal(result.proofSummary.orNodeCount, 3);
+  assert.equal(result.proofSummary.andNodeCount, 1);
+  assert.equal(result.proofSummary.terminalMateCount, 2);
+  assert.equal(result.proofSummary.maxDepth, 3);
+  assert.ok(result.footprint);
+  assert.deepEqual(result.footprint.cube, []);
+  assert.equal(result.footprint.featureAbi, null);
+});
+
+test("verifier rejects an omitted defender evasion", async function () {
+  const fixture = makeRules();
+  const candidate = candidateFrom(fixture.states);
+  candidate.nodes.d.edges.pop();
+  delete candidate.nodes.a2;
+  delete candidate.nodes.t2;
+  const result = await extractCertificate(candidate, fixture.rules, { expectedRootState: fixture.states.get("root") });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "INCOMPLETE_DEFENDER_COVERAGE");
+});
+
+test("verifier rejects a wrong child state", async function () {
+  const fixture = makeRules();
+  const candidate = candidateFrom(fixture.states);
+  candidate.nodes.r.edges[0].to = "a1";
+  const result = await extractCertificate(candidate, fixture.rules, { expectedRootState: fixture.states.get("root") });
+  assert.equal(result.ok, false);
+});
+
+test("verifier checks complete history context at the root", async function () {
+  const fixture = makeRules();
+  const extracted = await extractCertificate(candidateFrom(fixture.states), fixture.rules, { expectedRootState: fixture.states.get("root") });
+  assert.equal(extracted.ok, true);
+  const otherHistory = { ...fixture.states.get("root"), historyDigest: historyDigest("f") };
+  const result = await verifyCertificate(extracted.certificate, fixture.rules, {
+    expectedRootState: otherHistory
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "ROOT_STATE_MISMATCH");
+});
+
+test("extractor rejects cycles in the proof DAG", async function () {
+  const fixture = makeRules();
+  const candidate = candidateFrom(fixture.states);
+  candidate.nodes.a1.edges[0] = { move: "m1", to: "r" };
+  const result = await extractCertificate(candidate, fixture.rules, { expectedRootState: fixture.states.get("root") });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "CYCLE_DETECTED");
+});
+
+test("verifier rejects malformed terminal nodes", async function () {
+  const fixture = makeRules();
+  const candidate = candidateFrom(fixture.states);
+  candidate.nodes.t1.kind = "OR";
+  candidate.nodes.t1.edges = [{ move: "bogus", to: "t1" }];
+  const result = await extractCertificate(candidate, fixture.rules, { expectedRootState: fixture.states.get("root") });
+  assert.equal(result.ok, false);
+});
+
+
+
+test("Extractor derives versioned condition cubes only after certificate verification", async function () {
+  const fixture = makeRules();
+  const rules = {
+    ...fixture.rules,
+    footprintFeatureAbi: "fixture-root-features/1",
+    deriveFootprintFeatures: function (position) {
+      return {
+        phase: "opening",
+        sideToMove: position.turn
+      };
+    }
+  };
+  const result = await extractCertificate(candidateFrom(fixture.states), rules, {
+    expectedRootState: fixture.states.get("root")
+  });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.verification.code, "VERIFIED_MATE");
+  assert.deepEqual(result.footprint.cube, [
+    { key: "phase", value: "opening" },
+    { key: "sideToMove", value: "b" }
+  ]);
+  assert.equal(result.footprint.featureAbi, "fixture-root-features/1");
+  assert.equal(result.footprint.proofSummary.nodeCount, 6);
+
+  const abstract = matchFootprint(result.footprint, {
+    rulesetId: fixture.rules.rulesetId,
+    verifierAbi: fixture.rules.verifierAbi,
+    attackerSide: "b",
+    state: {
+      sfen: "another root position",
+      historyDigest: historyDigest("e"),
+      turn: "b"
+    },
+    featureAbi: "fixture-root-features/1",
+    features: { phase: "opening", sideToMove: "b" }
+  });
+  assert.equal(abstract.decision, "ABSTRACT_CANDIDATE");
+  assert.equal(abstract.canAcceptAsProof, false);
+});
+
+test("abstract footprint matching rejects a different feature ABI", function () {
+  const certificate = {
+    schema: "cfe.shogi.certificate",
+    version: 1,
+    root: "d".repeat(64),
+    rulesetId: "rules-v1",
+    verifierAbi: VERIFIER_ABI,
+    attackerSide: "b",
+    nodes: {
+      ["d".repeat(64)]: {
+        state: { sfen: "root", historyDigest: historyDigest("a"), turn: "b" }
+      }
+    }
+  };
+  const footprint = createFootprint(certificate, { phase: "opening" }, {
+    featureAbi: "features/1"
+  });
+  const result = matchFootprint(footprint, {
+    rulesetId: "rules-v1",
+    verifierAbi: VERIFIER_ABI,
+    attackerSide: "b",
+    state: { sfen: "other", historyDigest: historyDigest("e"), turn: "b" },
+    featureAbi: "features/2",
+    features: { phase: "opening" }
+  });
+  assert.equal(result.decision, "MISS");
+  assert.equal(result.proofTransferAllowed, undefined);
+});
+
+test("footprint comparison rejects differing feature ABIs", function () {
+  const certificate = {
+    schema: "cfe.shogi.certificate",
+    version: 1,
+    root: "e".repeat(64),
+    rulesetId: "rules-v1",
+    verifierAbi: VERIFIER_ABI,
+    attackerSide: "b",
+    nodes: {
+      ["e".repeat(64)]: {
+        state: { sfen: "root", historyDigest: historyDigest("a"), turn: "b" }
+      }
+    }
+  };
+  const v1 = createFootprint(certificate, { phase: "opening" }, { featureAbi: "features/1" });
+  const v2 = createFootprint(certificate, { phase: "opening" }, { featureAbi: "features/2" });
+  const result = compareFootprints(v1, v2);
+  assert.equal(result.compatible, false);
+  assert.equal(result.relation, "INCOMPATIBLE");
+  assert.equal(result.proofTransferAllowed, false);
+});
+
+test("proof summary rejects cycles and unreachable nodes", function () {
+  const cyclic = {
+    schema: "cfe.shogi.certificate",
+    version: 1,
+    root: "root",
+    nodes: {
+      root: { kind: "OR", edges: [{ to: "child" }] },
+      child: { kind: "AND", edges: [{ to: "root" }] }
+    }
+  };
+  assert.throws(function () { summarizeProofDag(cyclic); }, /Cycle/);
+
+  const disconnected = {
+    schema: "cfe.shogi.certificate",
+    version: 1,
+    root: "root",
+    nodes: {
+      root: { kind: "OR", edges: [] },
+      extra: { kind: "TERMINAL_MATE", edges: [] }
+    }
+  };
+  assert.throws(function () { summarizeProofDag(disconnected); }, /unreachable/);
+});
+
+
+function makeCshogiDfpnExport(states) {
+  const sourceNode = function (state, kind, edges, gamePly) {
+    return {
+      state: state,
+      kind: kind,
+      pn: 0,
+      dn: 100000000,
+      gamePly: gamePly,
+      numSearched: 1,
+      proofPieces: { P: 0, L: 0, N: 0, S: 0, G: 0, B: 0, R: 0 },
+      edges: edges
+    };
+  };
+  return {
+    schema: CSHOGI_DFPN_EXPORT_SCHEMA,
+    version: CSHOGI_DFPN_EXPORT_VERSION,
+    engine: {
+      name: "cshogi",
+      commit: "26889135717af0a08def9663bb73f1abe5263c66"
+    },
+    rulesetId: "test-tsume-v1",
+    attackerSide: "b",
+    root: "r",
+    search: {
+      maxDepth: 1600,
+      maxSearchNodes: 4294967295,
+      searchedNodes: 7
+    },
+    nodes: {
+      r: sourceNode(states.get("root"), "OR", [{ move: "A", to: "d" }], 0),
+      d: sourceNode(states.get("defender"), "AND", [
+        { move: "e1", to: "a1" },
+        { move: "e2", to: "a2" }
+      ], 1),
+      a1: sourceNode(states.get("attacker-1"), "OR", [{ move: "m1", to: "t1" }], 2),
+      a2: sourceNode(states.get("attacker-2"), "OR", [{ move: "m2", to: "t2" }], 2),
+      t1: sourceNode(states.get("mate-1"), "TERMINAL_MATE", [], 3),
+      t2: sourceNode(states.get("mate-2"), "TERMINAL_MATE", [], 3)
+    }
+  };
+}
+
+test("cshogi DFPN export adapter preserves complete graph and isolates solver diagnostics", function () {
+  const fixture = makeRules();
+  const imported = importCshogiDfpnExport(makeCshogiDfpnExport(fixture.states));
+  assert.equal(imported.ok, true, imported.reason);
+  assert.equal(Object.keys(imported.candidate.nodes).length, 6);
+  assert.equal(imported.candidate.nodes.d.edges.length, 2);
+  assert.equal(imported.diagnostics.nodes.r.pn, 0);
+  assert.equal(imported.diagnostics.nodes.r.proofPieces.P, 0);
+  assert.equal(imported.candidate.provenance.proofPiecesSemantics, "diagnostic-only");
+  assert.equal(imported.candidate.provenance.engine.commit, "26889135717af0a08def9663bb73f1abe5263c66");
+});
+
+test("cshogi DFPN import rejects a non-zero proof number and an incomplete node record", function () {
+  const fixture = makeRules();
+  const nonzero = makeCshogiDfpnExport(fixture.states);
+  nonzero.nodes.r.pn = 1;
+  const rejected = importCshogiDfpnExport(nonzero);
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.code, "UNPROVEN_CSHOGI_NODE");
+
+  const malformed = makeCshogiDfpnExport(fixture.states);
+  delete malformed.nodes.d.edges[1];
+  malformed.nodes.d.edges.pop();
+  const imported = importCshogiDfpnExport(malformed);
+  assert.equal(imported.ok, true);
+  // Import only checks shape; the independent verifier must reject missing
+  // legal defender evasions using its own move generator.
+});
+
+test("cshogi DFPN importer rejects the REPEAT sentinel even when pn is zero", function () {
+  const fixture = makeRules();
+  const source = makeCshogiDfpnExport(fixture.states);
+  assert.equal(CSHOGI_REPEAT_SENTINEL, 4294967294);
+  source.nodes.r.numSearched = CSHOGI_REPEAT_SENTINEL;
+  const rejected = importCshogiDfpnExport(source);
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.code, "PATH_DEPENDENT_CSHOGI_NODE");
+});
+
+test("cshogi hand partial order compares proof and disproof bounds in opposite directions", function () {
+  const stored = { P: 1, L: 0, N: 0, S: 0, G: 0, B: 0, R: 1 };
+  const strongerAttacker = { P: 2, L: 0, N: 0, S: 0, G: 0, B: 0, R: 1 };
+  const lessDefenderResource = { P: 0, L: 0, N: 0, S: 0, G: 0, B: 0, R: 1 };
+
+  const proof = compareCshogiHandDominance({
+    boundKind: "proof",
+    stored: stored,
+    requested: strongerAttacker
+  });
+  assert.equal(proof.relation, "DOMINATES");
+  assert.equal(proof.reuseCandidate, true);
+  assert.equal(proof.proofTransferAllowed, false);
+
+  const disproof = compareCshogiHandDominance({
+    boundKind: "disproof",
+    stored: stored,
+    requested: lessDefenderResource
+  });
+  assert.equal(disproof.relation, "DOMINATES");
+  assert.equal(disproof.reuseCandidate, true);
+  assert.equal(disproof.requiresIndependentVerification, true);
+});
+
+test("cshogi hand dominance rejects incomparable bounds and impossible hand counts", function () {
+  const a = { P: 1, L: 0, N: 0, S: 0, G: 0, B: 0, R: 0 };
+  const b = { P: 0, L: 0, N: 1, S: 0, G: 0, B: 0, R: 0 };
+  assert.equal(compareCshogiHandDominance({
+    boundKind: "proof", stored: a, requested: b
+  }).relation, "INCOMPARABLE");
+  assert.throws(function () {
+    compareCshogiHandDominance({
+      boundKind: "proof",
+      stored: { ...a, P: 19 },
+      requested: a
+    });
+  }, /outside the Shogi piece-count range/);
+});
+
+test("condition cube inclusion distinguishes stronger, equivalent and incomparable cubes", function () {
+  const broad = { phase: "middlegame" };
+  const narrow = { phase: "middlegame", handClass: "rook", turn: "b" };
+  assert.equal(compareConditionCubes(broad, narrow).relation, "RIGHT_STRONGER");
+  assert.equal(compareConditionCubes(narrow, broad).relation, "LEFT_STRONGER");
+  assert.equal(compareConditionCubes(broad, { phase: "middlegame" }).relation, "EQUIVALENT");
+  assert.equal(compareConditionCubes(
+    { phase: "middlegame" },
+    { handClass: "rook" }
+  ).relation, "INCOMPARABLE");
+});
+
+test("condition cube comparison detects contradictory literals as disjoint", function () {
+  const result = compareConditionCubes(
+    { phase: "middlegame", turn: "b" },
+    { phase: "endgame", turn: "b" }
+  );
+  assert.equal(result.relation, "DISJOINT");
+  assert.equal(result.leftImpliesRight, false);
+  assert.equal(result.rightImpliesLeft, false);
+});
+
+test("footprint inclusion is index metadata, never proof transfer", function () {
+  const certificate = {
+    schema: "cfe.shogi.certificate",
+    version: 1,
+    root: "a".repeat(64),
+    rulesetId: "rules-v1",
+    verifierAbi: VERIFIER_ABI,
+    attackerSide: "b",
+    nodes: {
+      ["a".repeat(64)]: {
+        state: { sfen: "sfen", historyDigest: historyDigest("a"), turn: "b" }
+      }
+    }
+  };
+  const broad = createFootprint(certificate, { phase: "middlegame" }, {
+    featureAbi: "fixture-features/1"
+  });
+  const narrow = createFootprint(certificate, { phase: "middlegame", handClass: "rook" }, {
+    featureAbi: "fixture-features/1"
+  });
+  const result = compareFootprints(broad, narrow);
+  assert.equal(result.compatible, true);
+  assert.equal(result.relation, "RIGHT_STRONGER");
+  assert.equal(result.sameRootState, true);
+  assert.equal(result.proofTransferAllowed, false);
+});
+
+test("footprints from incompatible verifier ABIs cannot be compared for reuse", function () {
+  const certificate = {
+    schema: "cfe.shogi.certificate",
+    version: 1,
+    root: "b".repeat(64),
+    rulesetId: "rules-v1",
+    verifierAbi: VERIFIER_ABI,
+    attackerSide: "b",
+    nodes: {
+      ["b".repeat(64)]: {
+        state: { sfen: "sfen", historyDigest: historyDigest("b"), turn: "b" }
+      }
+    }
+  };
+  const a = createFootprint(certificate, { phase: 1 }, {
+    featureAbi: "fixture-features/1"
+  });
+  const b = { ...a, verifierAbi: "cfe-verifier/2" };
+  const result = compareFootprints(a, b);
+  assert.equal(result.compatible, false);
+  assert.equal(result.relation, "INCOMPATIBLE");
+  assert.equal(result.proofTransferAllowed, false);
+});
+
+test("exact footprint matches remain candidates and require verification", async function () {
+  const fixture = makeRules();
+  const result = await extractCertificate(candidateFrom(fixture.states), fixture.rules, { expectedRootState: fixture.states.get("root") });
+  assert.equal(result.ok, true);
+  const footprint = createFootprint(result.certificate, { materialClass: "fixture-A", phase: 1 }, {
+    featureAbi: "fixture-features/1"
+  });
+  const exact = matchFootprint(footprint, {
+    rulesetId: fixture.rules.rulesetId,
+    verifierAbi: fixture.rules.verifierAbi,
+    attackerSide: "b",
+    state: fixture.states.get("root"),
+    featureAbi: "fixture-features/1",
+    features: { materialClass: "fixture-A", phase: 1 }
+  });
+  assert.equal(exact.decision, "EXACT_CANDIDATE");
+  assert.equal(exact.canAcceptAsProof, false);
+  assert.equal(exact.requiresVerification, true);
+});
+
+test("condition-cube hits on a different state are retrieval hints only", async function () {
+  const fixture = makeRules();
+  const result = await extractCertificate(candidateFrom(fixture.states), fixture.rules, { expectedRootState: fixture.states.get("root") });
+  const footprint = createFootprint(result.certificate, { materialClass: "fixture-A" }, {
+    featureAbi: "fixture-features/1"
+  });
+  const abstract = matchFootprint(footprint, {
+    rulesetId: fixture.rules.rulesetId,
+    verifierAbi: fixture.rules.verifierAbi,
+    attackerSide: "b",
+    state: { sfen: "other position", historyDigest: historyDigest("e"), turn: "b" },
+    featureAbi: "fixture-features/1",
+    features: { materialClass: "fixture-A" }
+  });
+  assert.equal(abstract.decision, "ABSTRACT_CANDIDATE");
+  assert.equal(abstract.canAcceptAsProof, false);
+});
+
+test("footprint refuses reuse across rulesets", function () {
+  const certificate = {
+    schema: "cfe.shogi.certificate",
+    version: 1,
+    root: "c".repeat(64),
+    rulesetId: "rules-v1",
+    verifierAbi: VERIFIER_ABI,
+    attackerSide: "b",
+    nodes: {
+      ["c".repeat(64)]: { state: { sfen: "sfen", historyDigest: historyDigest("a"), turn: "b" } }
+    }
+  };
+  const footprint = createFootprint(certificate);
+  const result = matchFootprint(footprint, {
+    rulesetId: "other-rules",
+    verifierAbi: VERIFIER_ABI,
+    state: footprint.rootState
+  });
+  assert.equal(result.decision, "MISS");
+});
+
+
+test("an empty condition cube is not a universal footprint hit", function () {
+  const certificate = {
+    schema: "cfe.shogi.certificate",
+    version: 1,
+    root: "c".repeat(64),
+    rulesetId: "rules-v1",
+    verifierAbi: VERIFIER_ABI,
+    attackerSide: "b",
+    nodes: {
+      ["c".repeat(64)]: { state: { sfen: "sfen", historyDigest: historyDigest("a"), turn: "b" } }
+    }
+  };
+  const footprint = createFootprint(certificate);
+  const result = matchFootprint(footprint, {
+    rulesetId: "rules-v1",
+    verifierAbi: VERIFIER_ABI,
+    attackerSide: "b",
+    state: { sfen: "different", historyDigest: "other", turn: "b" },
+    features: {}
+  });
+  assert.equal(result.decision, "MISS");
+});
+
+test("Governor schedules verification ahead of lower-value search", function () {
+  const result = planTasks([
+    { id: "deep-search", kind: "normal_search", expectedValue: 0.9, confidence: 0.9,
+      cpuMs: 80, gpuMs: 0, memoryBytes: 1024, heatDeltaC: 1 },
+    { id: "verify", kind: "verify_certificate", expectedValue: 0.2, confidence: 1,
+      cpuMs: 20, gpuMs: 0, memoryBytes: 1024, heatDeltaC: 0 }
+  ], {
+    cpuMs: 100, gpuMs: 0, memoryBytes: 4096,
+    currentTemperatureC: 30, maxTemperatureC: 40
+  });
+  assert.equal(result.selected[0].id, "verify");
+  assert.equal(result.verificationBlocked, false);
+  assert.equal(result.verificationScheduled, true);
+  assert.equal(result.proofAcceptanceAllowed, false);
+});
+
+test("Governor blocks proof acceptance when verification exceeds budget", function () {
+  const result = planTasks([
+    { id: "verify", kind: "verify_certificate", expectedValue: 1, confidence: 1,
+      cpuMs: 40, gpuMs: 0, memoryBytes: 1024, heatDeltaC: 0 }
+  ], {
+    cpuMs: 10, gpuMs: 0, memoryBytes: 4096,
+    currentTemperatureC: 30, maxTemperatureC: 40
+  });
+  assert.equal(result.verificationBlocked, true);
+  assert.equal(result.verificationScheduled, false);
+  assert.equal(result.proofAcceptanceAllowed, false);
+  assert.equal(result.deferred[0].reason, "resource-budget");
+});
+
+test("Governor enforces thermal limits", function () {
+  const result = planTasks([
+    { id: "gpu", kind: "neural_inference", expectedValue: 0.8, confidence: 0.9,
+      cpuMs: 1, gpuMs: 10, memoryBytes: 1000, heatDeltaC: 3 }
+  ], {
+    cpuMs: 100, gpuMs: 100, memoryBytes: 10000,
+    currentTemperatureC: 39, maxTemperatureC: 40
+  });
+  assert.equal(result.selected.length, 0);
+  assert.equal(result.deferred[0].reason, "thermal-budget");
+});
+
+test("extractor rejects unreachable candidate nodes", async function () {
+  const fixture = makeRules();
+  const candidate = candidateFrom(fixture.states);
+  candidate.nodes.unused = { state: fixture.states.get("root"), kind: "OR", edges: [] };
+  const result = await extractCertificate(candidate, fixture.rules, { expectedRootState: fixture.states.get("root") });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "UNREACHABLE_INPUT_NODES");
+});
+
+test("verifier requires an explicit target root before accepting a proof", async function () {
+  const fixture = makeRules();
+  const candidate = candidateFrom(fixture.states);
+  const extracted = await extractCertificate(candidate, fixture.rules, {
+    expectedRootState: fixture.states.get("root")
+  });
+  assert.equal(extracted.ok, true);
+  const unbound = await verifyCertificate(extracted.certificate, fixture.rules);
+  assert.equal(unbound.ok, false);
+  assert.equal(unbound.code, "ROOT_BINDING_REQUIRED");
+});
+
+test("verifier rejects a root bound to the wrong attacker side", async function () {
+  const fixture = makeRules();
+  const candidate = candidateFrom(fixture.states);
+  candidate.attackerSide = "w";
+  const result = await extractCertificate(candidate, fixture.rules, {
+    expectedRootState: fixture.states.get("root")
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "ROOT_TURN_INVALID");
+});
+
+test("verifier rejects a rule-decided repetition or draw as a mate leaf", async function () {
+  const fixture = makeRules();
+  const candidate = candidateFrom(fixture.states);
+  const base = fixture.rules.terminalStatus;
+  fixture.rules.terminalStatus = function (state) {
+    if (state.sfen === "mate position 1") return "non-mate-terminal";
+    return base(state);
+  };
+  const result = await extractCertificate(candidate, fixture.rules, {
+    expectedRootState: fixture.states.get("root")
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "INVALID_TERMINAL");
+});
+
+test("verifier rejects unknown terminal statuses from an adapter", async function () {
+  const fixture = makeRules();
+  const candidate = candidateFrom(fixture.states);
+  fixture.rules.terminalStatus = function () { return "maybe-mate"; };
+  const result = await extractCertificate(candidate, fixture.rules, {
+    expectedRootState: fixture.states.get("root")
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "INVALID_RULES_ADAPTER");
+});

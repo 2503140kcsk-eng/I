@@ -1,0 +1,35 @@
+name: CFE core CI
+
+on:
+  push:
+    branches: [main, cfe-foundation]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reference-core:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Syntax check
+        run: npm run check
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Set up Rust stable for the upstream rules audit
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Audit pinned shogi-rs 0.12.2 history replay
+        run: cargo test --manifest-path tools/shogi-rs-audit/Cargo.toml
