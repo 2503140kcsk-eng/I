@@ -1,4 +1,6 @@
 # cshogi is GPL-3.0 and is installed only for the isolated optional probe.
-# Hash pinned to the CPython 3.11 manylinux x86_64 wheel published on PyPI.
+# Exact hashes target CPython 3.11 manylinux x86_64 wheels on GitHub-hosted Ubuntu.
 cshogi==1.1.1 \
     --hash=sha256:91d32849f41b2979fdafae093578489a3615a7b06bd3fbf3ad4a2691629f5f19
+numpy==2.4.6 \
+    --hash=sha256:89cd468399cfd2504718f0ba50e410dca55a170b61a02ad92bb18c8a65186e93
