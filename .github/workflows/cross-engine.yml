@@ -1,4 +1,4 @@
-name: Cross-engine shogi conformance
+name: CFE external engine conformance
 on:
   push:
   pull_request:
@@ -6,27 +6,26 @@ on:
 permissions:
   contents: read
 jobs:
-  conformance:
+  cshogi:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        engine: [cshogi, shogi-rs]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Set up Rust
-        if: matrix.engine == 'shogi-rs'
-        uses: dtolnay/rust-toolchain@stable
-      - name: Install cshogi oracle (GPL-3.0, external test dependency)
-        if: matrix.engine == 'cshogi'
+      - name: Install isolated cshogi oracle
         run: python -m pip install --disable-pip-version-check --only-binary=:all: --require-hashes -r requirements/cshogi-conformance.txt
-      - name: Compare full corpus with cshogi
-        if: matrix.engine == 'cshogi'
+      - name: Compare shared corpus with cshogi
         run: python tools/conformance.py --engine cshogi
-      - name: Compare full corpus with shogi-rs (MIT)
-        if: matrix.engine == 'shogi-rs'
+  shogi_rs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Compare shared corpus with shogi-rs
         run: python tools/conformance.py --engine shogi-rs
