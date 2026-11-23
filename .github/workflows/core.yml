@@ -3,6 +3,9 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+concurrency:
+  group: cfe-shogi-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -20,6 +23,8 @@ jobs:
         run: python -m compileall -q cfe_shogi.py tools tests
       - name: CLI smoke test
         run: python cfe_shogi.py --sfen 'lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1' --canonical --key --moves
+      - name: Independent certificate verifier smoke test
+        run: python tools/verify_certificate.py --root-sfen '4k4/9/2NGKGN2/9/9/9/9/9/9 b - 1' --certificate examples/mate-in-1.certificate.json
       - name: Install isolated cshogi oracle
         run: "python -m pip install --disable-pip-version-check --only-binary=:all: --require-hashes -r requirements/cshogi-conformance.txt"
       - name: Compare shared SFEN corpus with cshogi
