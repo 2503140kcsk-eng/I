@@ -124,10 +124,15 @@ python tools/conformance.py --engine yaneuraou --engine-path /path/to/YaneuraOu
 
 The adapter completes `usi`/`isready`, sends `position sfen`, reads the SFEN
 from the `d` diagnostic output, and checks the canonical state and CFE key. It
-also compares `go perft 1` with the CFE legal-move count. Perft checks the
-count, **not** the exact move set; cshogi and shogi-rs provide exact legal-move
-set checks. The pinned Material build avoids needing a separate NNUE evaluation
-file for this protocol test.
+uses `go perft 1`'s root divide output (`USI: 1` per legal move) to reconstruct
+and compare YaneuraOu's exact legal USI move set. It rejects duplicate move
+lines, non-unit depth-one counts, malformed summaries, and a mismatch between
+root-line count and the total node count. The pinned Material build avoids
+needing a separate NNUE evaluation file for this protocol test.
+
+A regression test suite covers normal moves, promotions, drops, empty move
+sets, duplicate output, missing root lines, non-unit counts, and malformed
+perft summaries.
 
 ### Deterministic reachable-position differential corpus
 
@@ -148,13 +153,14 @@ rule boundaries.
 
 ## CI and free-use policy
 
-- `core.yml` runs the 24 dependency-free core tests, compile and CLI checks,
-  then both the 12-position edge corpus and the 73-position reachable corpus
-  against cshogi, shogi-rs, and a pinned YaneuraOu Material build on a standard
-  Ubuntu runner.
-- Across 85 positions per engine, cshogi and shogi-rs match the exact legal
-  move set, canonical state, and CFE key. YaneuraOu matches canonical state,
-  CFE key, and perft-1 move count on all 85.
+- `core.yml` runs the dependency-free core and adapter tests, compile and CLI
+  checks, then both the 12-position edge corpus and the 73-position reachable
+  corpus against cshogi, shogi-rs, and a pinned YaneuraOu Material build on a
+  standard Ubuntu runner.
+- Across 85 positions per engine, **all three engines match the exact legal
+  move set**, canonical state, and CFE key. For YaneuraOu, the exact set is
+  extracted from the per-root-move lines in perft depth one; the reported total
+  count is also checked independently.
 
 The repository is public. GitHub documents that standard GitHub-hosted runner
 usage for public repositories is free; this workflow does not request larger
