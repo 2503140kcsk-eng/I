@@ -4,7 +4,9 @@ import unittest
 from cfe_certificate import (
     SCHEMA,
     CertificateVerificationError,
+    RAW_PROOF_SCHEMA,
     canonical_certificate,
+    extract_mate_certificate,
     verify_mate_certificate,
 )
 from cfe_shogi import (
@@ -57,6 +59,49 @@ class CertificateVerifierTests(unittest.TestCase):
         result = verify_mate_certificate(cert, ROOT)
         self.assertTrue(result["valid"])
         self.assertEqual(1, result["max_mate_plies"])
+
+    def test_extractor_attaches_replayed_identities_and_verifies(self):
+        raw = {
+            "schema": RAW_PROOF_SCHEMA,
+            "attacker": "b",
+            "root": {
+                "children": [{
+                    "move": "4c5b",
+                    "node": {"terminal": "checkmate", "children": []},
+                }],
+            },
+        }
+        cert = extract_mate_certificate(raw, ROOT)
+        result = verify_mate_certificate(cert, ROOT)
+        self.assertTrue(result["valid"])
+        self.assertEqual(one_move_mate_certificate(), cert)
+
+    def test_extractor_rejects_incomplete_defender_tree(self):
+        first = legal_moves(parse_sfen(START))[0]
+        raw = {
+            "schema": RAW_PROOF_SCHEMA,
+            "attacker": "w",
+            "root": {
+                "children": [{
+                    "move": first,
+                    "node": {"children": []},
+                }],
+            },
+        }
+        with self.assertRaisesRegex(CertificateVerificationError, "complete legal-move set"):
+            extract_mate_certificate(raw, START)
+
+    def test_extractor_rejects_illegal_proof_edge(self):
+        raw = {
+            "schema": RAW_PROOF_SCHEMA,
+            "attacker": "b",
+            "root": {"children": [{
+                "move": "7g7e",
+                "node": {"terminal": "checkmate", "children": []},
+            }]},
+        }
+        with self.assertRaisesRegex(CertificateVerificationError, "illegal proof edge"):
+            extract_mate_certificate(raw, START)
 
     def test_rejects_certificate_for_a_different_root(self):
         with self.assertRaisesRegex(CertificateVerificationError, "identity"):
