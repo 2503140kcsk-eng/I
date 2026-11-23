@@ -203,7 +203,33 @@ def try_reuse_certificate(
     against the target position with every legal defender reply and checkmate
     leaf recomputed from scratch.
     """
-    if not matches_footprint(footprint, target_sfen):
+    cube = _validate_footprint(footprint)
+    try:
+        root_identity = certificate["root"]["identity"]
+        source_state = root_identity["canonical_state"]
+        if not isinstance(source_state, str):
+            raise CertificateVerificationError("certificate root canonical_state must be a string")
+        source_position = parse_sfen(source_state + " 1")
+        expected_source_identity = state_identity(source_position)
+        if root_identity != expected_source_identity:
+            raise CertificateVerificationError(
+                "certificate root identity is not internally consistent"
+            )
+        if cube.get("source_state_key") != expected_source_identity["state_key"]:
+            return {
+                "candidate_match": False,
+                "reusable": False,
+                "reason": "source_provenance_mismatch",
+            }
+    except (KeyError, TypeError, CertificateVerificationError, ValueError) as exc:
+        return {
+            "candidate_match": False,
+            "reusable": False,
+            "reason": "invalid_source_certificate_identity",
+            "error": str(exc),
+        }
+
+    if not matches_footprint(cube, target_sfen):
         return {"candidate_match": False, "reusable": False, "reason": "footprint_miss"}
     try:
         verification = verify_mate_certificate(
